@@ -24,7 +24,7 @@ A Discord bot that notifies users and channels about the status of the Project E
 
 ### 1. Clone the Repository
 ```sh
-git clone https://github.com/JesterCharles/epoch-discord-bot.git
+git clone https://github.com/JesterCharles/epoch-status-bot.git
 cd epoch-discord-bot
 ```
 
