@@ -1,0 +1,14 @@
+# Ignore everything except main bot code and requirements
+*.db
+.env
+__pycache__/
+*.pyc
+*.log
+*.sqlite3
+*.sqlite
+.DS_Store
+.*
+venv/
+tmp/
+!.gitignore
+!.git
