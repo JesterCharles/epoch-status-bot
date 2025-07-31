@@ -198,7 +198,8 @@ if __name__ == "__main__":
             cogs_to_load = [
                 'cogs.status',
                 'cogs.admin', 
-                'cogs.notifications'
+                'cogs.notifications',
+                'cogs.gambling'
             ]
             
             for cog in cogs_to_load:
