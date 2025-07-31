@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import os
 import sqlite3
 from datetime import datetime, timezone, timedelta
@@ -20,11 +20,133 @@ class GamblingCog(commands.Cog):
         if not self.db:
             database_file = os.environ.get("DATABASE_FILE", "bot_settings.db")
             self.db = Database(database_file)
+        
+        # Start the automatic rollover task
+        self.auto_rollover.start()
     
     def get_current_day(self) -> str:
         """Get current day as YYYY-MM-DD string in Central Time."""
         central_tz = pytz.timezone('US/Central')
         return datetime.now(central_tz).strftime("%Y-%m-%d")
+    
+    @tasks.loop(minutes=1)  # Check every minute
+    async def auto_rollover(self):
+        """Automatically perform rollover at midnight Central Time."""
+        try:
+            central_tz = pytz.timezone('US/Central')
+            now = datetime.now(central_tz)
+            
+            # Check if it's midnight (00:00) in Central Time
+            if now.hour == 0 and now.minute == 0:
+                current_day = self.get_current_day()
+                
+                # Get all guilds that have gambling channels set up
+                conn = sqlite3.connect(self.db.db_file)
+                cursor = conn.cursor()
+                cursor.execute("SELECT guild_id, gambling_channel_id FROM gambling_channels WHERE gambling_channel_id IS NOT NULL")
+                gambling_guilds = cursor.fetchall()
+                conn.close()
+                
+                # Perform rollover for each guild with gambling enabled
+                for guild_id, channel_id in gambling_guilds:
+                    try:
+                        # Get current jackpot before rollover
+                        old_amount, old_multiplier = self.db.get_current_jackpot(guild_id)
+                        
+                        # Only proceed if there was activity (jackpot exists)
+                        if old_amount > 0:
+                            # Perform rollover
+                            self.db.rollover_jackpot(guild_id, current_day)
+                            self.db.reset_daily_bets(guild_id, current_day)
+                            
+                            # Get new jackpot
+                            new_amount, new_multiplier = self.db.get_current_jackpot(guild_id)
+                            
+                            # Send rollover message to gambling channel
+                            await self.send_rollover_message(guild_id, channel_id, old_amount, old_multiplier, new_amount, new_multiplier)
+                    
+                    except Exception as e:
+                        print(f"Error performing auto-rollover for guild {guild_id}: {e}")
+                        
+        except Exception as e:
+            print(f"Error in auto_rollover task: {e}")
+    
+    @auto_rollover.before_loop
+    async def before_auto_rollover(self):
+        """Wait until bot is ready before starting the rollover task."""
+        await self.bot.wait_until_ready()
+    
+    async def send_rollover_message(self, guild_id: int, channel_id: int, old_amount: int, old_multiplier: int, new_amount: int, new_multiplier: int):
+        """Send automatic rollover message to the gambling channel."""
+        try:
+            guild = self.bot.get_guild(guild_id)
+            if not guild:
+                return
+                
+            channel = guild.get_channel(channel_id)
+            if not channel:
+                return
+            
+            embed = discord.Embed(
+                title="🌙 Automatic Daily Rollover",
+                description="Midnight has struck! The gambling system has automatically reset for a new day.",
+                color=0x4a5c8a
+            )
+            
+            if old_amount > 0:
+                embed.add_field(
+                    name="💰 Jackpot Doubled!",
+                    value=f"**{old_amount}** → **{new_amount}** epochs",
+                    inline=False
+                )
+                embed.add_field(
+                    name="🔥 Multiplier Increased",
+                    value=f"**{old_multiplier}x** → **{new_multiplier}x**",
+                    inline=True
+                )
+                embed.add_field(
+                    name="📈 Growth",
+                    value=f"Jackpot **doubled** overnight!",
+                    inline=True
+                )
+            else:
+                embed.add_field(
+                    name="🆕 Fresh Start",
+                    value="No bets were placed yesterday. Starting fresh today!",
+                    inline=False
+                )
+            
+            embed.add_field(
+                name="🎰 What Happened",
+                value=(
+                    "• Previous day's bets archived\n"
+                    "• Jackpot doubled for new day\n"
+                    "• Fresh betting cycle started\n"
+                    "• Daily epoch claims reset"
+                ),
+                inline=False
+            )
+            
+            embed.add_field(
+                name="🚀 Ready to Play?",
+                value=(
+                    "• Place your bets with `!bet <amount> <time>`\n"
+                    "• Claim daily epochs with `!daily`\n"
+                    "• Check the jackpot with `!jackpot`"
+                ),
+                inline=False
+            )
+            
+            embed.set_footer(text="🕛 Rollover occurs automatically every day at midnight Central Time")
+            
+            await channel.send(embed=embed)
+            
+        except Exception as e:
+            print(f"Error sending rollover message to guild {guild_id}: {e}")
+    
+    def cog_unload(self):
+        """Clean up when the cog is unloaded."""
+        self.auto_rollover.cancel()
     
     def is_gambling_channel(self, ctx) -> bool:
         """Check if the command is being used in the designated gambling channel."""
@@ -76,7 +198,18 @@ class GamblingCog(commands.Cog):
                 "• Place bets on when you think the server will launch\n"
                 "• Use `!bet <amount> <time>` (e.g., `!bet 50 2:30 PM`)\n"
                 "• The closest guess wins the entire jackpot!\n"
-                "• Times are in your local timezone"
+                "• Enter times in **your local timezone** - they're auto-converted!"
+            ),
+            inline=False
+        )
+        
+        rules_embed.add_field(
+            name="🌍 Timezone Info",
+            value=(
+                "• Enter times in **your local timezone**\n"
+                "• Bot automatically converts to UTC for storage\n"
+                "• Bet listings show both **UTC** and **Central Time**\n"
+                "• No need to do timezone math yourself!"
             ),
             inline=False
         )
@@ -115,7 +248,7 @@ class GamblingCog(commands.Cog):
             value=(
                 "• **First bet unlocks** daily epoch claims\n"
                 "• Claim **free epochs** every day with `!daily`\n"
-                "• Daily reset at **midnight Central Time**\n"
+                "• **Automatic reset** at **midnight Central Time**\n"
                 "• Bets reset each day for fresh competition\n"
                 "• Jackpot grows bigger each day server doesn't launch\n"
                 "• Don't miss your daily claim!"
@@ -238,7 +371,7 @@ class GamblingCog(commands.Cog):
             name="🎯 Available Commands",
             value=(
                 "`!balance` • `!daily` • `!bet` • `!bets` • `!broke`\n"
-                "`!jackpot` • `!gambling-rules` • `!rollover`"
+                "`!jackpot` • `!gambling-rules`"
             ),
             inline=False
         )
@@ -306,7 +439,8 @@ class GamblingCog(commands.Cog):
             await ctx.send(
                 f"❌ Usage: `!bet <amount> <time>`\n"
                 f"Example: `!bet 50 2:30 PM` or `!bet 25 14:30`\n"
-                f"Time should be in your local timezone."
+                f"⏰ Enter time in **your local timezone** - it will be converted automatically!\n"
+                f"📍 Times are displayed in UTC and Central Time for reference."
             )
             return
         
@@ -327,7 +461,8 @@ class GamblingCog(commands.Cog):
             await ctx.send(
                 f"❌ Invalid time format! Please use formats like:\n"
                 f"• `2:30 PM` or `14:30`\n"
-                f"• `2:30:00 PM` or `14:30:00`"
+                f"• `2:30:00 PM` or `14:30:00`\n"
+                f"⏰ Enter in **your local timezone** - it will be converted to UTC automatically!"
             )
             return
         
@@ -348,6 +483,8 @@ class GamblingCog(commands.Cog):
         self.db.update_jackpot(ctx.guild.id, amount, current_day)
         
         # Add the bet
+        # Format time in a more user-friendly way
+        utc_time = parsed_time.strftime("%H:%M UTC")
         formatted_time = parsed_time.strftime("%Y-%m-%d %H:%M:%S UTC")
         success = self.db.add_gambling_bet(
             ctx.guild.id, 
@@ -365,7 +502,7 @@ class GamblingCog(commands.Cog):
             message = (
                 f"✅ **Bet placed!**\n"
                 f"💰 Amount: **{amount}** epochs\n"
-                f"⏰ Predicted time: **{formatted_time}**\n"
+                f"⏰ Predicted time: **{utc_time}** (your input converted to UTC)\n"
                 f"💳 Remaining balance: **{new_balance}** epochs\n\n"
                 f"*Good luck! May the odds be ever in your favor!* 🎰"
             )
@@ -413,9 +550,14 @@ class GamblingCog(commands.Cog):
             for i, (user_name, bet_amount, predicted_time, predicted_timestamp) in enumerate(bets, 1):
                 # Convert timestamp back to readable format
                 dt = datetime.fromtimestamp(predicted_timestamp, pytz.UTC)
-                local_time = dt.strftime("%H:%M UTC")
+                utc_time = dt.strftime("%H:%M")
                 
-                bet_list.append(f"**{i}.** {user_name} - **{bet_amount}** epochs @ **{local_time}**")
+                # Also show in Central Time (server's timezone)
+                central_tz = pytz.timezone('US/Central')
+                central_dt = dt.astimezone(central_tz)
+                central_time = central_dt.strftime("%H:%M CT")
+                
+                bet_list.append(f"**{i}.** {user_name} - **{bet_amount}** epochs @ **{utc_time} UTC** / **{central_time}**")
             
             embed.add_field(
                 name="📋 Today's Bets", 
@@ -431,7 +573,7 @@ class GamblingCog(commands.Cog):
         embed.add_field(name="💰 Current Jackpot", value=jackpot_text, inline=True)
         embed.add_field(name="🎯 Today's Bets", value=f"**{len(bets)}**", inline=True)
         
-        footer_text = "💡 Closest guess wins the jackpot!"
+        footer_text = "💡 Closest guess wins the jackpot! Times shown in UTC / Central Time."
         if multiplier > 1:
             footer_text += f" | Jackpot doubled {multiplier}x from previous days!"
         embed.set_footer(text=footer_text)
@@ -482,7 +624,18 @@ class GamblingCog(commands.Cog):
                 "• Place bets on when you think the server will launch\n"
                 "• Use `!bet <amount> <time>` (e.g., `!bet 50 2:30 PM`)\n"
                 "• The closest guess wins the entire jackpot!\n"
-                "• Times are in your local timezone"
+                "• Enter times in **your local timezone** - they're auto-converted!"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🌍 Timezone Info",
+            value=(
+                "• Enter times in **your local timezone**\n"
+                "• Bot automatically converts to UTC for storage\n"
+                "• Bet listings show both **UTC** and **Central Time**\n"
+                "• No need to do timezone math yourself!"
             ),
             inline=False
         )
@@ -521,7 +674,7 @@ class GamblingCog(commands.Cog):
             value=(
                 "• **First bet unlocks** daily epoch claims\n"
                 "• Claim **free epochs** every day with `!daily`\n"
-                "• Daily reset at **midnight Central Time**\n"
+                "• **Automatic reset** at **midnight Central Time**\n"
                 "• Bets reset each day for fresh competition\n"
                 "• Jackpot grows bigger each day server doesn't launch\n"
                 "• Don't miss your daily claim!"
@@ -629,53 +782,6 @@ class GamblingCog(commands.Cog):
         embed.set_footer(text="Place your bets with !bet <amount> <time>")
         await ctx.send(embed=embed)
     
-    @commands.command(name="rollover", help="[Admin] Manually trigger daily rollover.")
-    @commands.has_permissions(administrator=True)
-    async def rollover_command(self, ctx):
-        """Manually trigger the daily rollover process."""
-        current_day = self.get_current_day()
-        
-        # Get current jackpot before rollover
-        old_amount, old_multiplier = self.db.get_current_jackpot(ctx.guild.id)
-        
-        # Perform rollover
-        self.db.rollover_jackpot(ctx.guild.id, current_day)
-        self.db.reset_daily_bets(ctx.guild.id, current_day)
-        
-        # Get new jackpot
-        new_amount, new_multiplier = self.db.get_current_jackpot(ctx.guild.id)
-        
-        embed = discord.Embed(
-            title="🔄 Daily Rollover Complete!",
-            description="The gambling system has been reset for a new day.",
-            color=0xff6600
-        )
-        
-        if old_amount > 0:
-            embed.add_field(
-                name="💰 Jackpot Update",
-                value=f"**{old_amount}** → **{new_amount}** epochs",
-                inline=False
-            )
-            embed.add_field(
-                name="🔥 Multiplier",
-                value=f"**{old_multiplier}x** → **{new_multiplier}x**",
-                inline=True
-            )
-        
-        embed.add_field(
-            name="📅 What Happened",
-            value=(
-                "• Previous day's bets archived\n"
-                "• Jackpot doubled for new day\n"
-                "• Fresh betting cycle started\n"
-                "• Daily epoch claims reset"
-            ),
-            inline=False
-        )
-        
-        await ctx.send(embed=embed)
-    
     async def calculate_and_announce_winners(self, guild_id: int, actual_launch_time: int, betting_day: str):
         """Calculate winners and announce them."""
         # Get all bets for today
@@ -761,7 +867,8 @@ class GamblingCog(commands.Cog):
         if actual_time is None:
             await ctx.send(
                 "❌ Usage: `!confirm-winner <actual_launch_time>`\n"
-                "Example: `!confirm-winner 2:30 PM` or `!confirm-winner 14:30`"
+                "Example: `!confirm-winner 2:30 PM` or `!confirm-winner 14:30`\n"
+                "⏰ Enter time in **your local timezone** - it will be converted automatically!"
             )
             return
         
