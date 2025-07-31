@@ -155,9 +155,9 @@ class GitCheckCog(commands.Cog):
                     time_ago = self.format_time_ago(commit['date'])
                     
                     # Truncate long commit messages
-                    message = commit['message']
-                    if len(message) > 60:
-                        message = message[:57] + "..."
+                    commit_message = commit['message']
+                    if len(commit_message) > 60:
+                        commit_message = commit_message[:57] + "..."
                     
                     # Create repository display name with branch info
                     repo_display = f"{commit['repo_path']}"
@@ -167,7 +167,7 @@ class GitCheckCog(commands.Cog):
                     field_value = (
                         f"**Repository:** [{repo_display}]({commit['commits_url']})\n"
                         f"**Latest Commit:** [{commit['sha']}]({commit['url']})\n"
-                        f"**Message:** {message}\n"
+                        f"**Message:** {commit_message}\n"
                         f"**Author:** {commit['author']}\n"
                         f"**When:** {time_ago}"
                     )
