@@ -196,9 +196,9 @@ class GamblingCog(commands.Cog):
                 "• **Place your first bet** to unlock daily claims\n"
                 "• Get **free epochs daily** with `!daily`\n"
                 "• Place bets on when you think the server will launch\n"
-                "• Use `!bet <amount> <time>` (e.g., `!bet 50 2:30 PM`)\n"
+                "• Use `!bet <amount> <time> [timezone]` (e.g., `!bet 50 2:30 PM EST`)\n"
                 "• The closest guess wins the entire jackpot!\n"
-                "• Enter times in **your local timezone** - they're auto-converted!"
+                "• Defaults to **Central Time** - specify timezone if different!"
             ),
             inline=False
         )
@@ -206,10 +206,11 @@ class GamblingCog(commands.Cog):
         rules_embed.add_field(
             name="🌍 Timezone Info",
             value=(
-                "• Enter times in **your local timezone**\n"
-                "• Bot automatically converts to UTC for storage\n"
+                "• **Defaults to Central Time** (CST/CDT)\n"
+                "• Specify timezone: `!bet 50 3:00 PM EST`\n"
+                "• **Supported:** EST, CST, MST, PST, UTC\n"
                 "• Bet listings show both **UTC** and **Central Time**\n"
-                "• No need to do timezone math yourself!"
+                "• Example: `15:00 EST` → converted to UTC automatically"
             ),
             inline=False
         )
@@ -219,13 +220,13 @@ class GamblingCog(commands.Cog):
             value=(
                 "• `!balance` - Check your epochs\n"
                 "• `!daily` - Claim free epochs (once per day)\n"
-                "• `!bet <amount> <time>` - Place a bet\n"
+                "• `!bet <amount> <time> [timezone]` - Place a bet\n"
                 "• `!bets` - View today's active bets\n"
                 "• `!jackpot` - View current jackpot status\n"
                 "• `!broke` - Request donations (if broke)\n"
                 "• `!gambling-rules` - View these rules\n"
                 "• `!set-gamble-channel <#channel>` - [Admin] Set gambling channel\n"
-                "• `!confirm-winner <time>` - [Admin] Confirm winner\n"
+                "• `!confirm-winner <time> [timezone]` - [Admin] Confirm winner\n"
                 "• `!false-alarm` - [Admin] Cancel false detection"
             ),
             inline=False
@@ -279,9 +280,35 @@ class GamblingCog(commands.Cog):
         except Exception as e:
             # Can't send feedback about pin failure when we don't have ctx
             pass
-    def parse_time_input(self, time_str: str, user_timezone: str = "UTC") -> Optional[datetime]:
-        """Parse user time input and convert to UTC."""
+    def parse_time_input(self, time_str: str, user_timezone: str = "US/Central") -> tuple[Optional[datetime], str]:
+        """Parse user time input and convert to UTC. Returns (datetime, timezone_used)."""
         try:
+            # Check if timezone is specified in the time string
+            time_parts = time_str.strip().split()
+            timezone_used = user_timezone
+            time_only = time_str.strip()
+            
+            # Common timezone abbreviations mapping
+            tz_mapping = {
+                'EST': 'US/Eastern',
+                'EDT': 'US/Eastern',
+                'CST': 'US/Central',
+                'CDT': 'US/Central',
+                'MST': 'US/Mountain',
+                'MDT': 'US/Mountain',
+                'PST': 'US/Pacific',
+                'PDT': 'US/Pacific',
+                'UTC': 'UTC',
+                'GMT': 'UTC'
+            }
+            
+            # Check if the last part is a timezone
+            if len(time_parts) > 1:
+                potential_tz = time_parts[-1].upper()
+                if potential_tz in tz_mapping:
+                    timezone_used = tz_mapping[potential_tz]
+                    time_only = ' '.join(time_parts[:-1])
+            
             # Try different time formats
             formats = [
                 "%H:%M",           # 14:30
@@ -294,10 +321,10 @@ class GamblingCog(commands.Cog):
             for fmt in formats:
                 try:
                     # Parse time (assumes today's date)
-                    parsed_time = datetime.strptime(time_str.strip(), fmt)
+                    parsed_time = datetime.strptime(time_only.strip(), fmt)
                     
                     # Get today's date in user's timezone
-                    tz = pytz.timezone(user_timezone) if user_timezone != "UTC" else pytz.UTC
+                    tz = pytz.timezone(timezone_used)
                     today = datetime.now(tz).date()
                     
                     # Combine today's date with parsed time
@@ -306,14 +333,14 @@ class GamblingCog(commands.Cog):
                     # Convert to UTC
                     utc_dt = local_dt.astimezone(pytz.UTC)
                     
-                    return utc_dt
+                    return utc_dt, timezone_used
                 except ValueError:
                     continue
             
-            return None
+            return None, timezone_used
         except Exception as e:
             print(f"Error parsing time: {e}")
-            return None
+            return None, user_timezone
     
     @commands.command(name="balance", help="Check your current epoch balance.")
     async def balance_command(self, ctx):
@@ -428,7 +455,7 @@ class GamblingCog(commands.Cog):
         else:
             await ctx.send("❌ An error occurred while processing your daily claim. Please try again.")
     
-    @commands.command(name="bet", help="Place a bet on when the server will launch. Usage: !bet <amount> <time>")
+    @commands.command(name="bet", help="Place a bet on when the server will launch. Usage: !bet <amount> <time> [timezone]")
     async def bet_command(self, ctx, amount: int = None, *, predicted_time: str = None):
         """Place a bet on server launch time."""
         if not self.is_gambling_channel(ctx):
@@ -437,10 +464,13 @@ class GamblingCog(commands.Cog):
             
         if amount is None or predicted_time is None:
             await ctx.send(
-                f"❌ Usage: `!bet <amount> <time>`\n"
-                f"Example: `!bet 50 2:30 PM` or `!bet 25 14:30`\n"
-                f"⏰ Enter time in **your local timezone** - it will be converted automatically!\n"
-                f"📍 Times are displayed in UTC and Central Time for reference."
+                f"❌ Usage: `!bet <amount> <time> [timezone]`\n"
+                f"Examples:\n"
+                f"• `!bet 50 2:30 PM` (defaults to Central Time)\n" 
+                f"• `!bet 25 14:30 EST` (specify timezone)\n"
+                f"• `!bet 100 3:00 PM PST`\n"
+                f"🕐 **Supported timezones:** EST, CST, MST, PST, UTC\n"
+                f"📍 Defaults to **Central Time** if no timezone specified."
             )
             return
         
@@ -456,13 +486,15 @@ class GamblingCog(commands.Cog):
             return
         
         # Parse the time
-        parsed_time = self.parse_time_input(predicted_time)
+        parsed_time, timezone_used = self.parse_time_input(predicted_time)
         if parsed_time is None:
             await ctx.send(
                 f"❌ Invalid time format! Please use formats like:\n"
-                f"• `2:30 PM` or `14:30`\n"
-                f"• `2:30:00 PM` or `14:30:00`\n"
-                f"⏰ Enter in **your local timezone** - it will be converted to UTC automatically!"
+                f"• `2:30 PM` or `14:30` (defaults to Central Time)\n"
+                f"• `2:30 PM EST` or `14:30 PST` (specify timezone)\n"
+                f"• `2:30:00 PM CDT` (with seconds)\n"
+                f"🕐 **Supported timezones:** EST, CST, MST, PST, UTC\n"
+                f"🕐 **Defaults to Central Time** if no timezone specified!"
             )
             return
         
@@ -483,8 +515,7 @@ class GamblingCog(commands.Cog):
         self.db.update_jackpot(ctx.guild.id, amount, current_day)
         
         # Add the bet
-        # Format time in a more user-friendly way
-        utc_time = parsed_time.strftime("%H:%M UTC")
+        # Format time for storage
         formatted_time = parsed_time.strftime("%Y-%m-%d %H:%M:%S UTC")
         success = self.db.add_gambling_bet(
             ctx.guild.id, 
@@ -498,11 +529,25 @@ class GamblingCog(commands.Cog):
         )
         
         if success:
+            # Show timezone conversion information
+            timezone_display = {
+                'US/Eastern': 'Eastern',
+                'US/Central': 'Central', 
+                'US/Mountain': 'Mountain',
+                'US/Pacific': 'Pacific',
+                'UTC': 'UTC'
+            }.get(timezone_used, timezone_used)
+            
+            input_tz = pytz.timezone(timezone_used)
+            input_time = parsed_time.astimezone(input_tz)
+            input_time_str = input_time.strftime("%H:%M")
+            utc_time_str = parsed_time.strftime("%H:%M UTC")
+            
             # Check if this was their first bet
             message = (
                 f"✅ **Bet placed!**\n"
                 f"💰 Amount: **{amount}** epochs\n"
-                f"⏰ Predicted time: **{utc_time}** (your input converted to UTC)\n"
+                f"🕐 Your input: **{input_time_str} {timezone_display}** → **{utc_time_str}**\n"
                 f"💳 Remaining balance: **{new_balance}** epochs\n\n"
                 f"*Good luck! May the odds be ever in your favor!* 🎰"
             )
@@ -622,9 +667,9 @@ class GamblingCog(commands.Cog):
                 "• **Place your first bet** to unlock daily claims\n"
                 "• Get **free epochs daily** with `!daily`\n"
                 "• Place bets on when you think the server will launch\n"
-                "• Use `!bet <amount> <time>` (e.g., `!bet 50 2:30 PM`)\n"
+                "• Use `!bet <amount> <time> [timezone]` (e.g., `!bet 50 2:30 PM EST`)\n"
                 "• The closest guess wins the entire jackpot!\n"
-                "• Enter times in **your local timezone** - they're auto-converted!"
+                "• Defaults to **Central Time** - specify timezone if different!"
             ),
             inline=False
         )
@@ -632,10 +677,11 @@ class GamblingCog(commands.Cog):
         embed.add_field(
             name="🌍 Timezone Info",
             value=(
-                "• Enter times in **your local timezone**\n"
-                "• Bot automatically converts to UTC for storage\n"
+                "• **Defaults to Central Time** (CST/CDT)\n"
+                "• Specify timezone: `!bet 50 3:00 PM EST`\n"
+                "• **Supported:** EST, CST, MST, PST, UTC\n"
                 "• Bet listings show both **UTC** and **Central Time**\n"
-                "• No need to do timezone math yourself!"
+                "• Example: `15:00 EST` → converted to UTC automatically"
             ),
             inline=False
         )
@@ -645,13 +691,13 @@ class GamblingCog(commands.Cog):
             value=(
                 "• `!balance` - Check your epochs\n"
                 "• `!daily` - Claim free epochs (once per day)\n"
-                "• `!bet <amount> <time>` - Place a bet\n"
+                "• `!bet <amount> <time> [timezone]` - Place a bet\n"
                 "• `!bets` - View today's active bets\n"
                 "• `!jackpot` - View current jackpot status\n"
                 "• `!broke` - Request donations (if broke)\n"
                 "• `!gambling-rules` - View these rules\n"
                 "• `!set-gamble-channel <#channel>` - [Admin] Set gambling channel\n"
-                "• `!confirm-winner <time>` - [Admin] Confirm winner\n"
+                "• `!confirm-winner <time> [timezone]` - [Admin] Confirm winner\n"
                 "• `!false-alarm` - [Admin] Cancel false detection"
             ),
             inline=False
@@ -866,19 +912,22 @@ class GamblingCog(commands.Cog):
         """Confirm winners and pay out jackpot."""
         if actual_time is None:
             await ctx.send(
-                "❌ Usage: `!confirm-winner <actual_launch_time>`\n"
-                "Example: `!confirm-winner 2:30 PM` or `!confirm-winner 14:30`\n"
-                "⏰ Enter time in **your local timezone** - it will be converted automatically!"
+                "❌ Usage: `!confirm-winner <actual_launch_time> [timezone]`\n"
+                "Examples:\n"
+                "• `!confirm-winner 2:30 PM` (defaults to Central Time)\n"
+                "• `!confirm-winner 14:30 EST` (specify timezone)\n"
+                "🕐 **Supported timezones:** EST, CST, MST, PST, UTC"
             )
             return
         
         # Parse the actual launch time
-        parsed_time = self.parse_time_input(actual_time)
+        parsed_time, timezone_used = self.parse_time_input(actual_time)
         if parsed_time is None:
             await ctx.send(
                 "❌ Invalid time format! Please use formats like:\n"
-                "• `2:30 PM` or `14:30`\n"
-                "• `2:30:00 PM` or `14:30:00`"
+                "• `2:30 PM` or `14:30` (defaults to Central Time)\n"
+                "• `2:30 PM EST` or `14:30 PST` (specify timezone)\n"
+                "🕐 **Supported timezones:** EST, CST, MST, PST, UTC"
             )
             return
         
