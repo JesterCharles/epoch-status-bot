@@ -51,87 +51,36 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=intents)
 
+# Store database instance on bot for cogs to access
+bot.db = db
 
-# --- Database Initialization is handled by the Database class ---
+# Async setup hook for loading cogs
+async def setup_hook():
+    """Load all cogs when the bot starts up."""
+    cogs_to_load = [
+        'cogs.status',
+        'cogs.admin', 
+        'cogs.notifications',
+        'cogs.gambling'
+    ]
+    
+    for cog in cogs_to_load:
+        try:
+            await bot.load_extension(cog)
+            print(f"Loaded {cog} successfully")
+        except Exception as e:
+            print(f"Failed to load {cog}: {e}")
 
-async def add_optin_user(guild_id: int, user_id: int):
-    # Try to get username from bot if possible
-    user_name = None
-    guild = bot.get_guild(guild_id)
-    member = None
-    if guild:
-        member = guild.get_member(user_id)
-        if not member:
-            try:
-                member = await guild.fetch_member(user_id)
-            except Exception:
-                member = None
-        if member:
-            user_name = member.name
-    db.add_optin_user(guild_id, user_id, user_name)
+# Set the setup hook
+bot.setup_hook = setup_hook
 
-async def remove_optin_user(guild_id: int, user_id: int):
-    db.remove_optin_user(guild_id, user_id)
+# Helper functions for background task - keep these in main file since they're used by the background loop
+async def get_notification_channel(guild_id: int) -> int | None:
+    return db.get_notification_channel(guild_id)
 
 async def get_optin_users(guild_id: int):
     return db.get_optin_users(guild_id)
 
-
-# --- Command to Post Opt-in Notification Message ---
-@bot.command(name="notifyme", help="React to the posted message to opt-in/out of Kezan notifications.")
-async def notifyme_command(ctx):
-    """
-    Posts a message users can react to in order to opt-in/out of Kezan notifications.
-    Usage: !notifyme
-    """
-    msg = await ctx.send(
-        "React with 🔔 to this message to receive Kezan online notifications! Remove your reaction to opt out."
-    )
-    await msg.add_reaction("🔔")
-
-
-# --- Reaction Event Handlers for Opt-in ---
-@bot.event
-async def on_raw_reaction_add(payload):
-    if payload.emoji.name == "🔔" and not payload.member.bot:
-        guild_id = payload.guild_id
-        user_id = payload.user_id
-        await add_optin_user(guild_id, user_id)
-        # Logging
-        guild = bot.get_guild(guild_id)
-        user = payload.member
-        if guild and user:
-            print(f"[notifyme] Added user {user.name} ({user_id}) to opt-in list for guild '{guild.name}' ({guild_id})")
-        else:
-            print(f"[notifyme] Added user ID {user_id} to opt-in list for guild ID {guild_id}")
-
-@bot.event
-async def on_raw_reaction_remove(payload):
-    if payload.emoji.name == "🔔":
-        guild_id = payload.guild_id
-        user_id = payload.user_id
-        await remove_optin_user(guild_id, user_id)
-        # Logging
-        guild = bot.get_guild(guild_id)
-        user = None
-        if guild:
-            user = guild.get_member(user_id)
-        if guild and user:
-            print(f"[notifyme] Removed user {user.name} ({user_id}) from opt-in list for guild '{guild.name}' ({guild_id})")
-        else:
-            print(f"[notifyme] Removed user ID {user_id} from opt-in list for guild ID {guild_id}")
-
-
-# --- Notification Channel Management (using db.py) ---
-async def set_notification_channel(guild_id: int, channel_id: int):
-    db.set_notification_channel(guild_id, channel_id)
-    print(f"[{discord.utils.utcnow()}] Stored channel {channel_id} for guild {guild_id} in database.")
-
-async def get_notification_channel(guild_id: int) -> int | None:
-    return db.get_notification_channel(guild_id)
-
-
-# --- Helper Function for API Call ---
 async def fetch_realm_status_data():
     """
     Fetches the realm status from the API and returns the status string or None on error.
@@ -251,74 +200,12 @@ async def on_ready():
     """
     print(f'Logged in as {bot.user} (ID: {bot.user.id})')
     print('------')
+    
     # Database is initialized on db instance creation
     # Make sure the bot is ready before starting the loop
     if not check_realm_status.is_running():
         print("Starting realm status check loop...")
         check_realm_status.start()
-
-# --- Command to Check Status ---
-@bot.command(name="status", help="Checks the current Project Epoch realm status.")
-async def status_command(ctx):
-    """
-    A command that checks the current realm status and reports it to the channel where it was invoked.
-    Usage: !status
-    """
-    status_message = "Checking realm status..."
-    message = await ctx.send(status_message) # Send an initial "checking" message
-
-    data = await fetch_realm_status_data()
-
-    if data and isinstance(data, dict):
-        status = data.get("status")
-        auth_status = data.get("authServerStatus", False)
-        realms = data.get("realms", [])
-        kezan = next((realm for realm in realms if realm.get("name") == "Kezan"), None)
-        kezan_online = kezan.get("worldServerOnline", False) if kezan else False
-
-        if status:
-            response_text = (
-                f"The Project Epoch realm is currently **{status.upper()}**.\n"
-                f"Auth server: {'ONLINE' if auth_status else 'OFFLINE'}\n"
-                f"Kezan world server: {'ONLINE' if kezan_online else 'OFFLINE'}"
-            )
-        else:
-            response_text = "Could not retrieve realm status at this time. The API might be down."
-    else:
-        response_text = "Could not retrieve realm status at this time. The API might be down."
-
-    await message.edit(content=response_text)
-    print(f"[{discord.utils.utcnow()}] Manual status check requested by {ctx.author.name} in guild '{ctx.guild.name}': {response_text}")
-
-# --- Command to Set Notification Channel ---
-@bot.command(name="setchannel", help="Sets the channel for realm status notifications for this server. (Admin Only)")
-@commands.has_permissions(administrator=True) # Restrict to administrators
-async def set_channel_command(ctx, channel: discord.TextChannel):
-    """
-    Sets the notification channel for this server.
-    Usage: !setchannel #your-channel-name (or !setchannel <channel_id>)
-    """
-    try:
-        guild_id = ctx.guild.id
-        channel_id = channel.id
-        await set_notification_channel(guild_id, channel_id)
-        await ctx.send(f"Notification channel for this server has been set to {channel.mention}!")
-        print(f"[{discord.utils.utcnow()}] Guild '{ctx.guild.name}' ({guild_id}): Notification channel set to {channel.name} ({channel_id}).")
-    except Exception as e:
-        await ctx.send(f"An error occurred while setting the channel: {e}")
-        print(f"[{discord.utils.utcnow()}] Error setting channel in guild '{ctx.guild.name}': {e}")
-
-@set_channel_command.error
-async def set_channel_error(ctx, error):
-    if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"Please specify a channel. Usage: `{COMMAND_PREFIX}setchannel #your-channel` or `{COMMAND_PREFIX}setchannel <channel_id>`")
-    elif isinstance(error, commands.BadArgument):
-        await ctx.send("Invalid channel specified. Please ensure it's a valid text channel.")
-    elif isinstance(error, commands.MissingPermissions):
-        await ctx.send("You do not have the necessary permissions (Administrator) to use this command.")
-    else:
-        await ctx.send(f"An error occurred: {error}")
-    print(f"[{discord.utils.utcnow()}] Error in {COMMAND_PREFIX}setchannel command: {error}")
 
 # --- Run the Bot ---
 if __name__ == "__main__":
