@@ -51,5 +51,5 @@ class AdminCog(commands.Cog):
             await ctx.send(f"An error occurred: {error}")
         print(f"[{discord.utils.utcnow()}] Error in {self.command_prefix}setchannel command: {error}")
 
-def setup(bot):
-    bot.add_cog(AdminCog(bot))
+async def setup(bot):
+    await bot.add_cog(AdminCog(bot))

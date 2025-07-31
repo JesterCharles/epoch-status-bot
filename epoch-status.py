@@ -54,6 +54,26 @@ bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=intents)
 # Store database instance on bot for cogs to access
 bot.db = db
 
+# Async setup hook for loading cogs
+async def setup_hook():
+    """Load all cogs when the bot starts up."""
+    cogs_to_load = [
+        'cogs.status',
+        'cogs.admin', 
+        'cogs.notifications',
+        'cogs.gambling'
+    ]
+    
+    for cog in cogs_to_load:
+        try:
+            await bot.load_extension(cog)
+            print(f"Loaded {cog} successfully")
+        except Exception as e:
+            print(f"Failed to load {cog}: {e}")
+
+# Set the setup hook
+bot.setup_hook = setup_hook
+
 # Helper functions for background task - keep these in main file since they're used by the background loop
 async def get_notification_channel(guild_id: int) -> int | None:
     return db.get_notification_channel(guild_id)
@@ -194,21 +214,6 @@ if __name__ == "__main__":
         print("Refer to the instructions on how to get your token.")
     else:
         try:
-            # Load cogs before starting the bot
-            cogs_to_load = [
-                'cogs.status',
-                'cogs.admin', 
-                'cogs.notifications',
-                'cogs.gambling'
-            ]
-            
-            for cog in cogs_to_load:
-                try:
-                    bot.load_extension(cog)
-                    print(f"Loaded {cog} successfully")
-                except Exception as e:
-                    print(f"Failed to load {cog}: {e}")
-            
             bot.run(DISCORD_BOT_TOKEN)
         except discord.errors.LoginFailure:
             print("ERROR: Failed to log in. Check your bot token. It might be invalid or expired.")

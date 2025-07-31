@@ -77,5 +77,5 @@ class NotificationsCog(commands.Cog):
             else:
                 print(f"[notifyme] Removed user ID {user_id} from opt-in list for guild ID {guild_id}")
 
-def setup(bot):
-    bot.add_cog(NotificationsCog(bot))
+async def setup(bot):
+    await bot.add_cog(NotificationsCog(bot))

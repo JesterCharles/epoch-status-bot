@@ -708,5 +708,5 @@ class GamblingCog(commands.Cog):
             except Exception as e:
                 print(f"Error processing donation: {e}")
 
-def setup(bot):
-    bot.add_cog(GamblingCog(bot))
+async def setup(bot):
+    await bot.add_cog(GamblingCog(bot))

@@ -61,5 +61,5 @@ class StatusCog(commands.Cog):
         await message.edit(content=response_text)
         print(f"[{discord.utils.utcnow()}] Manual status check requested by {ctx.author.name} in guild '{ctx.guild.name}': {response_text}")
 
-def setup(bot):
-    bot.add_cog(StatusCog(bot))
+async def setup(bot):
+    await bot.add_cog(StatusCog(bot))
