@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 import os
+import sqlite3
 from datetime import datetime, timezone, timedelta
 import pytz
 from typing import Optional
@@ -80,7 +81,9 @@ class GamblingCog(commands.Cog):
                 "• `!jackpot` - View current jackpot status\n"
                 "• `!broke` - Request donations (if broke)\n"
                 "• `!gambling-rules` - View these rules\n"
-                "• `!set-gamble-channel` - [Admin] Set gambling channel"
+                "• `!set-gamble-channel` - [Admin] Set gambling channel\n"
+                "• `!confirm-winner <time>` - [Admin] Confirm winner\n"
+                "• `!false-alarm` - [Admin] Cancel false detection"
             ),
             inline=False
         )
@@ -473,7 +476,9 @@ class GamblingCog(commands.Cog):
                 "• `!jackpot` - View current jackpot status\n"
                 "• `!broke` - Request donations (if broke)\n"
                 "• `!gambling-rules` - View these rules\n"
-                "• `!set-gamble-channel` - [Admin] Set gambling channel"
+                "• `!set-gamble-channel` - [Admin] Set gambling channel\n"
+                "• `!confirm-winner <time>` - [Admin] Confirm winner\n"
+                "• `!false-alarm` - [Admin] Cancel false detection"
             ),
             inline=False
         )
@@ -516,6 +521,47 @@ class GamblingCog(commands.Cog):
         embed.set_footer(text="🎲 Remember: This is just for fun while waiting for the server!")
         
         await ctx.send(embed=embed)
+
+    @commands.command(name="broke", help="Request epoch donations from other users.")
+    async def broke_command(self, ctx):
+        """Request donations when user is broke."""
+        if not self.is_gambling_channel(ctx):
+            await self.send_wrong_channel_message(ctx)
+            return
+            
+        balance = self.db.get_gambling_balance(ctx.guild.id, ctx.author.id, self.starting_balance)
+        
+        if balance > 0:
+            await ctx.send(f"💰 You still have **{balance}** epochs! You're not broke yet!")
+            return
+        
+        # Create donation request message
+        embed = discord.Embed(
+            title="🆘 Broke Player Alert!",
+            description=f"{ctx.author.mention} has run out of epochs and needs your help!",
+            color=0xff0000
+        )
+        
+        embed.add_field(
+            name="😅 The Shame",
+            value=(
+                f"*{ctx.author.display_name} has gambled away all their epochs...*\n"
+                f"*They're now begging for spare change like a common peasant!*\n\n"
+                f"React with 💰 to donate **{self.donation_amount}** epochs to this poor soul."
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="💝 Donations Received",
+            value="None yet... 😢",
+            inline=False
+        )
+        
+        embed.set_footer(text=f"Each 💰 reaction donates 5 epochs. Be generous! | UserID: {ctx.author.id}")
+        
+        msg = await ctx.send(embed=embed)
+        await msg.add_reaction("💰")
     
     @commands.command(name="jackpot", help="View current jackpot status.")
     async def jackpot_command(self, ctx):
@@ -609,47 +655,217 @@ class GamblingCog(commands.Cog):
         
         await ctx.send(embed=embed)
     
-    @commands.command(name="broke", help="Request epoch donations from other users.")
-    async def broke_command(self, ctx):
-        """Request donations when user is broke."""
-        if not self.is_gambling_channel(ctx):
-            await self.send_wrong_channel_message(ctx)
-            return
+    async def calculate_and_announce_winners(self, guild_id: int, actual_launch_time: int, betting_day: str):
+        """Calculate winners and announce them."""
+        # Get all bets for today
+        bets = self.db.get_active_gambling_bets_for_day(guild_id, betting_day)
+        
+        if not bets:
+            return None  # No bets to process
+        
+        # Calculate closest bet(s)
+        closest_bets = []
+        min_difference = float('inf')
+        
+        for user_name, bet_amount, predicted_time, predicted_timestamp in bets:
+            difference = abs(predicted_timestamp - actual_launch_time)
+            if difference < min_difference:
+                min_difference = difference
+                closest_bets = [(user_name, bet_amount, predicted_timestamp)]
+            elif difference == min_difference:
+                closest_bets.append((user_name, bet_amount, predicted_timestamp))
+        
+        # Get current jackpot
+        jackpot_amount, multiplier = self.db.get_current_jackpot(guild_id)
+        
+        # Calculate payout per winner
+        payout_per_winner = jackpot_amount // len(closest_bets) if closest_bets else 0
+        
+        return {
+            'winners': closest_bets,
+            'jackpot_amount': jackpot_amount,
+            'payout_per_winner': payout_per_winner,
+            'min_difference': min_difference,
+            'actual_launch_time': actual_launch_time,
+            'betting_day': betting_day
+        }
+
+    async def process_confirmed_winners(self, guild_id: int, winner_data: dict):
+        """Process the actual winner payouts after admin confirmation."""
+        winners = winner_data['winners']
+        payout_per_winner = winner_data['payout_per_winner']
+        betting_day = winner_data['betting_day']
+        
+        # Pay out winners
+        for user_name, bet_amount, predicted_timestamp in winners:
+            # Get user_id from the bet
+            conn = sqlite3.connect(self.db.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT user_id FROM gambling_bets WHERE guild_id = ? AND user_name = ? AND predicted_timestamp = ? AND betting_day = ?",
+                (guild_id, user_name, predicted_timestamp, betting_day)
+            )
+            result = cursor.fetchone()
+            conn.close()
             
-        balance = self.db.get_gambling_balance(ctx.guild.id, ctx.author.id, self.starting_balance)
+            if result:
+                user_id = result[0]
+                current_balance = self.db.get_gambling_balance(guild_id, user_id, self.starting_balance)
+                new_balance = current_balance + payout_per_winner
+                self.db.set_gambling_balance(guild_id, user_id, new_balance)
         
-        if balance > 0:
-            await ctx.send(f"💰 You still have **{balance}** epochs! You're not broke yet!")
+        # Reset jackpot and deactivate bets
+        conn = sqlite3.connect(self.db.db_file)
+        cursor = conn.cursor()
+        
+        # Reset jackpot
+        cursor.execute(
+            "INSERT OR REPLACE INTO gambling_jackpots (guild_id, current_pot, multiplier, last_reset_day) VALUES (?, 0, 1, ?)",
+            (guild_id, betting_day)
+        )
+        
+        # Deactivate all bets for this day
+        cursor.execute(
+            "UPDATE gambling_bets SET is_active = 0 WHERE guild_id = ? AND betting_day = ?",
+            (guild_id, betting_day)
+        )
+        
+        conn.commit()
+        conn.close()
+
+    @commands.command(name="confirm-winner", help="[Admin] Confirm the calculated winner after server launch.")
+    @commands.has_permissions(administrator=True)
+    async def confirm_winner_command(self, ctx, *, actual_time: str = None):
+        """Confirm winners and pay out jackpot."""
+        if actual_time is None:
+            await ctx.send(
+                "❌ Usage: `!confirm-winner <actual_launch_time>`\n"
+                "Example: `!confirm-winner 2:30 PM` or `!confirm-winner 14:30`"
+            )
             return
         
-        # Create donation request message
+        # Parse the actual launch time
+        parsed_time = self.parse_time_input(actual_time)
+        if parsed_time is None:
+            await ctx.send(
+                "❌ Invalid time format! Please use formats like:\n"
+                "• `2:30 PM` or `14:30`\n"
+                "• `2:30:00 PM` or `14:30:00`"
+            )
+            return
+        
+        current_day = self.get_current_day()
+        actual_launch_timestamp = int(parsed_time.timestamp())
+        
+        # Calculate winners
+        winner_data = await self.calculate_and_announce_winners(ctx.guild.id, actual_launch_timestamp, current_day)
+        
+        if not winner_data:
+            await ctx.send("❌ No bets found for today!")
+            return
+        
+        if winner_data['jackpot_amount'] == 0:
+            await ctx.send("❌ No jackpot to award!")
+            return
+        
+        # Process payouts
+        await self.process_confirmed_winners(ctx.guild.id, winner_data)
+        
+        # Create winner announcement
+        winners = winner_data['winners']
+        jackpot_amount = winner_data['jackpot_amount']
+        payout_per_winner = winner_data['payout_per_winner']
+        min_difference = winner_data['min_difference']
+        
         embed = discord.Embed(
-            title="🆘 Broke Player Alert!",
-            description=f"{ctx.author.mention} has run out of epochs and needs your help!",
-            color=0xff0000
+            title="🎉 JACKPOT WINNERS ANNOUNCED! 🎉",
+            description=f"The server launched and we have our winners!",
+            color=0xffd700
+        )
+        
+        # Format time difference
+        if min_difference < 60:
+            time_diff = f"{min_difference} seconds"
+        elif min_difference < 3600:
+            time_diff = f"{min_difference // 60} minutes, {min_difference % 60} seconds"
+        else:
+            hours = min_difference // 3600
+            minutes = (min_difference % 3600) // 60
+            time_diff = f"{hours} hours, {minutes} minutes"
+        
+        # Winner list
+        if len(winners) == 1:
+            winner_name = winners[0][0]
+            embed.add_field(
+                name="🏆 Winner",
+                value=f"**{winner_name}** wins it all!",
+                inline=False
+            )
+        else:
+            winner_names = [winner[0] for winner in winners]
+            embed.add_field(
+                name="🏆 Winners (Tie!)",
+                value=f"**{', '.join(winner_names)}** split the jackpot!",
+                inline=False
+            )
+        
+        embed.add_field(
+            name="💰 Jackpot Total",
+            value=f"**{jackpot_amount}** epochs",
+            inline=True
         )
         
         embed.add_field(
-            name="😅 The Shame",
+            name="💵 Payout Each",
+            value=f"**{payout_per_winner}** epochs",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🎯 Accuracy",
+            value=f"Off by **{time_diff}**",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📅 Next Round",
+            value="New bets can be placed for tomorrow's potential launch!",
+            inline=False
+        )
+        
+        embed.set_footer(text="🎲 Congratulations to the winners! Better luck next time everyone else!")
+        
+        await ctx.send(embed=embed)
+
+    @commands.command(name="false-alarm", help="[Admin] Cancel winner calculation if server launch was a false positive.")
+    @commands.has_permissions(administrator=True)
+    async def false_alarm_command(self, ctx):
+        """Cancel winner calculation for false server launch detection."""
+        embed = discord.Embed(
+            title="🚨 False Alarm Confirmed",
+            description="The server launch detection was a false positive.",
+            color=0xff6600
+        )
+        
+        embed.add_field(
+            name="📝 What This Means",
             value=(
-                f"*{ctx.author.display_name} has gambled away all their epochs...*\n"
-                f"*They're now begging for spare change like a common peasant!*\n\n"
-                f"React with 💰 to donate **{self.donation_amount}** epochs to this poor soul."
+                "• No winners will be calculated\n"
+                "• All bets remain active\n"
+                "• Jackpot continues to grow\n"
+                "• Betting continues as normal"
             ),
             inline=False
         )
         
         embed.add_field(
-            name="💝 Donations Received",
-            value="None yet... 😢",
+            name="🎰 Status",
+            value="The gambling continues! Keep your bets active.",
             inline=False
         )
         
-        embed.set_footer(text=f"Each 💰 reaction donates 5 epochs. Be generous! | UserID: {ctx.author.id}")
-        
-        msg = await ctx.send(embed=embed)
-        await msg.add_reaction("💰")
-    
+        await ctx.send(embed=embed)
+
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload):
         """Handle donation reactions."""
