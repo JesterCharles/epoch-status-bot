@@ -58,6 +58,23 @@ A comprehensive betting system for server launch times, designed to keep the com
 - **Persistent Storage:** All balances, bets, and settings stored in SQLite database
 - **Automatic Messaging:** System posts rollover updates and jackpot information automatically
 
+### GitHub Repository Monitoring 🔍
+Keep track of Project Epoch development progress by monitoring their GitHub repositories for recent commits.
+
+#### GitCheck Features
+- **Project Epoch Focus:** Automatically checks TrinityCore (epoch-core) and tswow (epoch) repositories
+- **Recent Commit Info:** Shows latest commit message, author, and timestamp
+- **Time Tracking:** Displays how long ago each commit was made (e.g., "2 hours ago", "3 days ago")
+- **Smart Links:** Repository names link to commit history, latest commits link directly to the specific commit
+- **Branch Support:** Monitors the correct development branches (epoch-core and epoch)
+
+#### GitCheck Commands
+- `!gitcheck` — Check latest commits on both Project Epoch repositories
+
+#### Monitored Repositories
+- **TrinityCore:** [Project-Epoch/TrinityCore](https://github.com/Project-Epoch/TrinityCore) (epoch-core branch)
+- **tswow:** [Project-Epoch/tswow](https://github.com/Project-Epoch/tswow) (epoch branch)
+
 ### General Features
 - **Persistent Storage:** Uses SQLite to store notification channels, opt-in users, gambling data, and all configurations per guild
 - **Environment-based Configuration:** All secrets and settings are loaded from environment variables (with .env support for local development)
@@ -126,6 +143,7 @@ The bot will automatically:
 - `db.py` — SQLite database helper class with support for both status monitoring and gambling features.
 - `cogs/` — Discord bot command modules organized by feature
   - `gambling.py` — Complete gambling system with betting, jackpots, and user management
+  - `gitcheck.py` — GitHub repository monitoring for tracking recent commits
 - `requirements.txt` — Python dependencies (includes pytz for timezone support).
 - `.env.example` — Example environment file (copy to `.env` and fill in your values).
 - `.gitignore` — Ensures secrets and DB files are not committed.
