@@ -51,6 +51,16 @@ class GamblingCog(commands.Cog):
 
     async def post_and_pin_rules(self, ctx):
         """Post gambling rules and pin the message."""
+        try:
+            await self.post_and_pin_rules_in_channel(ctx.channel)
+            await ctx.send("📌 **Rules posted and pinned!** Users can now reference them easily.")
+        except discord.errors.Forbidden:
+            await ctx.send("⚠️ **Rules posted!** (Couldn't pin - missing permissions)")
+        except Exception as e:
+            await ctx.send(f"⚠️ **Rules posted!** (Pin failed: {str(e)})")
+    
+    async def post_and_pin_rules_in_channel(self, channel):
+        """Post gambling rules and pin the message in a specific channel."""
         rules_embed = discord.Embed(
             title="🎰 Epoch Gambling Rules",
             description="Welcome to the server launch betting game!",
@@ -81,7 +91,7 @@ class GamblingCog(commands.Cog):
                 "• `!jackpot` - View current jackpot status\n"
                 "• `!broke` - Request donations (if broke)\n"
                 "• `!gambling-rules` - View these rules\n"
-                "• `!set-gamble-channel` - [Admin] Set gambling channel\n"
+                "• `!set-gamble-channel <#channel>` - [Admin] Set gambling channel\n"
                 "• `!confirm-winner <time>` - [Admin] Confirm winner\n"
                 "• `!false-alarm` - [Admin] Cancel false detection"
             ),
@@ -126,13 +136,16 @@ class GamblingCog(commands.Cog):
         rules_embed.set_footer(text="🎲 Remember: This is just for fun while waiting for the server!")
         
         try:
-            rules_msg = await ctx.send(embed=rules_embed)
+            rules_msg = await channel.send(embed=rules_embed)
             await rules_msg.pin()
-            await ctx.send("📌 **Rules posted and pinned!** Users can now reference them easily.")
+            # Only send confirmation message if this was called from the original post_and_pin_rules method
+            # We can check if the channel has a send method and if we have access to ctx
         except discord.errors.Forbidden:
-            await ctx.send("⚠️ **Rules posted!** (Couldn't pin - missing permissions)")
+            # Can't send feedback about pin failure when we don't have ctx
+            pass
         except Exception as e:
-            await ctx.send(f"⚠️ **Rules posted!** (Pin failed: {str(e)})")
+            # Can't send feedback about pin failure when we don't have ctx
+            pass
     def parse_time_input(self, time_str: str, user_timezone: str = "UTC") -> Optional[datetime]:
         """Parse user time input and convert to UTC."""
         try:
@@ -190,15 +203,23 @@ class GamblingCog(commands.Cog):
         
         await ctx.send(message)
     
-    @commands.command(name="set-gamble-channel", help="[Admin] Set the gambling channel for this server.")
+    @commands.command(name="set-gamble-channel", help="[Admin] Set the gambling channel for this server. Usage: !set-gamble-channel <#channel>")
     @commands.has_permissions(administrator=True)
-    async def set_gamble_channel_command(self, ctx):
-        """Set the current channel as the gambling channel."""
-        self.db.set_gambling_channel(ctx.guild.id, ctx.channel.id)
+    async def set_gamble_channel_command(self, ctx, channel: discord.TextChannel = None):
+        """Set a specific channel as the gambling channel."""
+        if channel is None:
+            await ctx.send(
+                "❌ Usage: `!set-gamble-channel <#channel>`\n"
+                "Example: `!set-gamble-channel #gambling` or `!set-gamble-channel gambling`\n"
+                "You can mention the channel with # or just use the channel name."
+            )
+            return
+            
+        self.db.set_gambling_channel(ctx.guild.id, channel.id)
         
         embed = discord.Embed(
             title="🎰 Gambling Channel Set!",
-            description=f"This channel ({ctx.channel.mention}) is now the designated gambling channel.",
+            description=f"Channel {channel.mention} is now the designated gambling channel.",
             color=0x00ff00
         )
         
@@ -225,8 +246,8 @@ class GamblingCog(commands.Cog):
         embed.set_footer(text="Only administrators can change the gambling channel.")
         await ctx.send(embed=embed)
         
-        # Post and pin the gambling rules
-        await self.post_and_pin_rules(ctx)
+        # Post and pin the gambling rules in the designated channel
+        await self.post_and_pin_rules_in_channel(channel)
     
     @commands.command(name="daily", help="Claim your daily epochs.")
     async def daily_command(self, ctx):
@@ -476,7 +497,7 @@ class GamblingCog(commands.Cog):
                 "• `!jackpot` - View current jackpot status\n"
                 "• `!broke` - Request donations (if broke)\n"
                 "• `!gambling-rules` - View these rules\n"
-                "• `!set-gamble-channel` - [Admin] Set gambling channel\n"
+                "• `!set-gamble-channel <#channel>` - [Admin] Set gambling channel\n"
                 "• `!confirm-winner <time>` - [Admin] Confirm winner\n"
                 "• `!false-alarm` - [Admin] Cancel false detection"
             ),
