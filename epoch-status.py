@@ -62,7 +62,8 @@ async def setup_hook():
         'cogs.admin', 
         'cogs.notifications',
         'cogs.gambling',
-        'cogs.gitcheck'
+        'cogs.gitcheck',
+        'cogs.clanker'
     ]
     
     for cog in cogs_to_load:
