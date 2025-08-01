@@ -111,8 +111,6 @@ class GitCheckCog(commands.Cog):
             if ':' in repo_path:
                 repo_path = repo_path.split(':', 1)[0]
             
-            print(f"DEBUG: Checking active branches for {repo_path}")
-            
             headers = {
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -120,7 +118,6 @@ class GitCheckCog(commands.Cog):
             
             # Get the active branches page
             branches_url = f"https://github.com/{repo_path}/branches/active"
-            print(f"DEBUG: Fetching {branches_url}")
             response = requests.get(branches_url, headers=headers, timeout=10)
             response.raise_for_status()
             
@@ -141,13 +138,9 @@ class GitCheckCog(commands.Cog):
                 matches = re.findall(pattern, html_content)
                 if matches:
                     branch_matches = matches
-                    print(f"DEBUG: Found branches with pattern: {pattern}")
-                    print(f"DEBUG: Matches: {matches}")
                     break
             
             if not branch_matches:
-                print(f"DEBUG: No branch matches found for {repo_path}")
-                # Fallback: return a simple result indicating we found the page but no branches
                 return {
                     'branch_name': 'No active branches found',
                     'branch_url': f"https://github.com/{repo_path}/branches/active",
@@ -158,14 +151,11 @@ class GitCheckCog(commands.Cog):
             target_branch = None
             for branch_match in branch_matches:
                 branch_name = branch_match[0] if isinstance(branch_match, tuple) else branch_match
-                print(f"DEBUG: Checking branch: {branch_name}")
                 if branch_name not in ['main', 'master']:
                     target_branch = branch_name
-                    print(f"DEBUG: Selected target branch: {target_branch}")
                     break
             
             if not target_branch:
-                print(f"DEBUG: No non-main/master branches found")
                 return {
                     'branch_name': 'Only main/master branches found',
                     'branch_url': f"https://github.com/{repo_path}/branches/active",
@@ -184,7 +174,6 @@ class GitCheckCog(commands.Cog):
                 pr_matches = re.findall(pr_pattern, html_content)
                 if pr_matches:
                     pr_number = pr_matches[0]
-                    print(f"DEBUG: Found PR #{pr_number}")
                     pr_info = {
                         'number': int(pr_number),
                         'title': f"Pull Request #{pr_number}",
@@ -292,9 +281,27 @@ class GitCheckCog(commands.Cog):
                         
                         if branch_info['pr']:
                             pr = branch_info['pr']
-                            branch_text += f" ([PR #{pr['number']}]({pr['url']}))"
+                            branch_text += f" (PR: [{pr['number']}]({pr['url']}))"
                         
                         field_value += f"\n**Latest Branch:** {branch_text}"
+                        
+                        # Add fun developer appreciation if the latest branch has recent activity
+                        # We'll assume recent activity if there's an active branch (since it came from the active branches page)
+                        if branch_info['branch_name'] not in ['No active branches found', 'Only main/master branches found']:
+                            # Get a random developer name from recent commits
+                            author = commit['author']  # Use the commit author as the active developer
+                            appreciation_messages = [
+                                f"🔥 The devs are cooking! Blessed be **{author}**! 🙏",
+                                f"⚡ Fresh code alert! **{author}** is on fire! 🔥",
+                                f"🚀 Active development detected! Praise **{author}**! ✨",
+                                f"💫 **{author}** is grinding hard! The dedication! 👑",
+                                f"🎯 Hot commits incoming! **{author}** never sleeps! ⭐",
+                                f"🔨 **{author}** is building the future! Legend! 🏆",
+                                f"⚙️ Code machine **{author}** at work! Pure magic! ✨"
+                            ]
+                            import random
+                            appreciation = random.choice(appreciation_messages)
+                            field_value += f"\n*{appreciation}*"
                     
                     embed.add_field(
                         name=f"📦 {repo_display}",
