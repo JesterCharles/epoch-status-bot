@@ -112,9 +112,9 @@ class GitCheckCog(commands.Cog):
                 'User-Agent': 'EpochStatusBot'
             }
             
-            # Get fewer branches initially to reduce API calls
+            # Get branches (GitHub API returns them sorted by last activity)
             branches_url = f"https://api.github.com/repos/{repo_path}/branches"
-            params = {'per_page': 20}  # Reduced from 100 to limit API calls
+            params = {'per_page': 10}  # Just get the first 10 branches
             response = requests.get(branches_url, headers=headers, params=params, timeout=10)
             response.raise_for_status()
             
@@ -122,47 +122,19 @@ class GitCheckCog(commands.Cog):
             if not branches:
                 return None
             
-            # Check commit dates for each non-main/master branch to find the most recent
-            # But limit to first 10 non-main branches to avoid rate limiting
-            most_recent_branch = None
-            most_recent_date = None
-            most_recent_commit_data = None
-            checked_count = 0
-            max_branches_to_check = 10
-            
+            # Find the first non-main/master branch (should be most active)
+            latest_branch = None
             for branch in branches:
-                if branch['name'] not in ['main', 'master'] and checked_count < max_branches_to_check:
-                    checked_count += 1
-                    # Add small delay between requests to avoid rate limiting
-                    if checked_count > 1:
-                        await asyncio.sleep(0.1)  # 100ms delay between requests
-                    
-                    # Get commit info for this branch
-                    commit_url = f"https://api.github.com/repos/{repo_path}/commits/{branch['name']}"
-                    commit_response = requests.get(commit_url, headers=headers, timeout=10)
-                    if commit_response.status_code == 200:
-                        commit_data = commit_response.json()
-                        commit_date_str = commit_data['commit']['author']['date']
-                        commit_date = datetime.fromisoformat(commit_date_str.replace('Z', '+00:00'))
-                        
-                        if most_recent_date is None or commit_date > most_recent_date:
-                            most_recent_date = commit_date
-                            most_recent_branch = branch
-                            most_recent_commit_data = commit_data
-                    elif commit_response.status_code == 429:
-                        # If we hit rate limit, break and use what we have
-                        print(f"Rate limit hit while checking branches for {repo_path}, using best result so far")
-                        break
+                if branch['name'] not in ['main', 'master']:
+                    latest_branch = branch
+                    break
             
-            if not most_recent_branch or not most_recent_commit_data:
+            if not latest_branch:
                 return None
-            
-            # Small delay before PR check
-            await asyncio.sleep(0.1)
             
             # Check if there's an open PR for this branch
             prs_url = f"https://api.github.com/repos/{repo_path}/pulls"
-            pr_params = {'state': 'open', 'head': f"{repo_path.split('/')[0]}:{most_recent_branch['name']}"}
+            pr_params = {'state': 'open', 'head': f"{repo_path.split('/')[0]}:{latest_branch['name']}"}
             pr_response = requests.get(prs_url, headers=headers, params=pr_params, timeout=10)
             
             pr_info = None
@@ -174,14 +146,10 @@ class GitCheckCog(commands.Cog):
                         'title': prs[0]['title'],
                         'url': prs[0]['html_url']
                     }
-            elif pr_response.status_code == 429:
-                print(f"Rate limit hit while checking PRs for {repo_path}")
             
             return {
-                'branch_name': most_recent_branch['name'],
-                'branch_date': most_recent_commit_data['commit']['author']['date'],
-                'branch_author': most_recent_commit_data['commit']['author']['name'],
-                'branch_url': f"https://github.com/{repo_path}/tree/{most_recent_branch['name']}",
+                'branch_name': latest_branch['name'],
+                'branch_url': f"https://github.com/{repo_path}/tree/{latest_branch['name']}",
                 'pr': pr_info
             }
             
@@ -277,41 +245,21 @@ class GitCheckCog(commands.Cog):
                         # Create clickable branch name link
                         branch_text = f"[{branch_info['branch_name']}]({branch_info['branch_url']})"
                         
-                        # Calculate time ago for the branch commit
-                        branch_time_ago = self.format_time_ago(branch_info['branch_date'])
-                        
                         if branch_info['pr']:
                             pr = branch_info['pr']
                             branch_text += f" ([PR #{pr['number']}]({pr['url']}))"
                         
-                        branch_text += f" - {branch_time_ago}"
-                        field_value += f"\n**Latest Work:** {branch_text}"
-                        
-                        # Add fun developer appreciation if commit is recent (less than 1 hour)
-                        branch_commit_time = datetime.fromisoformat(branch_info['branch_date'].replace('Z', '+00:00'))
-                        now = datetime.now(timezone.utc)
-                        time_diff = now - branch_commit_time
-                        
-                        if time_diff.total_seconds() < 3600:  # Less than 1 hour
-                            author = branch_info['branch_author']
-                            appreciation_messages = [
-                                f"🔥 The devs are cooking! Blessed be **{author}**! 🙏",
-                                f"⚡ Fresh code alert! **{author}** is on fire! 🔥",
-                                f"🚀 Active development detected! Praise **{author}**! ✨",
-                                f"💫 **{author}** is grinding hard! The dedication! 👑",
-                                f"🎯 Hot commits incoming! **{author}** never sleeps! ⭐",
-                                f"🔨 **{author}** is building the future! Legend! 🏆",
-                                f"⚙️ Code machine **{author}** at work! Pure magic! ✨"
-                            ]
-                            import random
-                            appreciation = random.choice(appreciation_messages)
-                            field_value += f"\n*{appreciation}*"
+                        field_value += f"\n**Latest Branch:** {branch_text}"
                     
                     embed.add_field(
                         name=f"📦 {repo_display}",
                         value=field_value,
-                        inline=True  # This creates columns side by side
+                        inline=True
                     )
+            
+            # Add empty field to force side-by-side layout for 2 repositories
+            if len([c for c in commit_info if not c.get('error')]) == 2:
+                embed.add_field(name="\u200b", value="\u200b", inline=True)
         
         # Add footer with check time
         embed.set_footer(
