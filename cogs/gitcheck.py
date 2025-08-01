@@ -107,49 +107,70 @@ class GitCheckCog(commands.Cog):
     async def get_latest_branch_and_pr(self, repo_path: str) -> Optional[dict]:
         """Get the latest active branch and its PR status for a repository."""
         try:
+            # Remove branch info if present (e.g., "Project-Epoch/TrinityCore:epoch-core" -> "Project-Epoch/TrinityCore")
+            if ':' in repo_path:
+                repo_path = repo_path.split(':', 1)[0]
+            
             headers = {
-                'Accept': 'application/vnd.github.v3+json',
-                'User-Agent': 'EpochStatusBot'
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             }
             
-            # Get branches (GitHub API returns them sorted by last activity)
-            branches_url = f"https://api.github.com/repos/{repo_path}/branches"
-            params = {'per_page': 10}  # Just get the first 10 branches
-            response = requests.get(branches_url, headers=headers, params=params, timeout=10)
+            # Get the active branches page
+            branches_url = f"https://github.com/{repo_path}/branches/active"
+            response = requests.get(branches_url, headers=headers, timeout=10)
             response.raise_for_status()
             
-            branches = response.json()
-            if not branches:
+            # Parse HTML to find branch and PR information from the table
+            html_content = response.text
+            
+            import re
+            
+            # Look for table rows that contain branch information
+            # The active branches table has specific patterns for branch names and PR links
+            
+            # Find branch links and their associated PR information
+            # Pattern for branch name in the table
+            branch_pattern = r'<a[^>]*href="/' + re.escape(repo_path) + r'/tree/([^"]+)"[^>]*>([^<]+)</a>'
+            branch_matches = re.findall(branch_pattern, html_content)
+            
+            if not branch_matches:
                 return None
             
-            # Find the first non-main/master branch (should be most active)
-            latest_branch = None
-            for branch in branches:
-                if branch['name'] not in ['main', 'master']:
-                    latest_branch = branch
+            # Find the first non-main/master branch
+            target_branch = None
+            for branch_match in branch_matches:
+                branch_name = branch_match[0]
+                if branch_name not in ['main', 'master']:
+                    target_branch = branch_name
                     break
             
-            if not latest_branch:
+            if not target_branch:
                 return None
             
-            # Check if there's an open PR for this branch
-            prs_url = f"https://api.github.com/repos/{repo_path}/pulls"
-            pr_params = {'state': 'open', 'head': f"{repo_path.split('/')[0]}:{latest_branch['name']}"}
-            pr_response = requests.get(prs_url, headers=headers, params=pr_params, timeout=10)
+            # Look for PR information in the same table row
+            # PR links appear as "Pull request #number" in the table
+            pr_pattern = r'<a[^>]*href="/' + re.escape(repo_path) + r'/pull/(\d+)"[^>]*>.*?#(\d+)[^<]*</a>'
+            pr_matches = re.findall(pr_pattern, html_content)
+            
+            # Also look for PR titles - they appear near the PR links
+            pr_title_pattern = r'<a[^>]*href="/' + re.escape(repo_path) + r'/pull/\d+"[^>]*title="([^"]*)"'
+            pr_title_matches = re.findall(pr_title_pattern, html_content)
             
             pr_info = None
-            if pr_response.status_code == 200:
-                prs = pr_response.json()
-                if prs:
-                    pr_info = {
-                        'number': prs[0]['number'],
-                        'title': prs[0]['title'],
-                        'url': prs[0]['html_url']
-                    }
+            if pr_matches:
+                # Get the first PR that matches (should be for our target branch)
+                pr_number = pr_matches[0][1]
+                pr_title = pr_title_matches[0] if pr_title_matches else f"Pull Request #{pr_number}"
+                pr_info = {
+                    'number': int(pr_number),
+                    'title': pr_title,
+                    'url': f"https://github.com/{repo_path}/pull/{pr_number}"
+                }
             
             return {
-                'branch_name': latest_branch['name'],
-                'branch_url': f"https://github.com/{repo_path}/tree/{latest_branch['name']}",
+                'branch_name': target_branch,
+                'branch_url': f"https://github.com/{repo_path}/tree/{target_branch}",
                 'pr': pr_info
             }
             
