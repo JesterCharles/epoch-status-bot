@@ -102,6 +102,77 @@ class GitCheckCog(commands.Cog):
         except Exception as e:
             print(f"Unexpected error for {repo}: {e}")
             return None
+
+    async def get_latest_branch_and_pr(self, repo_path: str) -> Optional[dict]:
+        """Get the latest active branch and its PR status for a repository."""
+        try:
+            headers = {
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'EpochStatusBot'
+            }
+            
+            # Get recent branches (excluding main/master)
+            branches_url = f"https://api.github.com/repos/{repo_path}/branches"
+            response = requests.get(branches_url, headers=headers, timeout=10)
+            response.raise_for_status()
+            
+            branches = response.json()
+            if not branches:
+                return None
+            
+            # Filter out main/master branches and sort by commit date
+            active_branches = []
+            for branch in branches:
+                if branch['name'] not in ['main', 'master']:
+                    # Get commit info for this branch
+                    commit_url = f"https://api.github.com/repos/{repo_path}/commits/{branch['name']}"
+                    commit_response = requests.get(commit_url, headers=headers, timeout=10)
+                    if commit_response.status_code == 200:
+                        commit_data = commit_response.json()
+                        active_branches.append({
+                            'name': branch['name'],
+                            'date': commit_data['commit']['author']['date'],
+                            'sha': commit_data['sha']
+                        })
+            
+            if not active_branches:
+                return None
+            
+            # Sort by most recent commit date
+            active_branches.sort(key=lambda x: x['date'], reverse=True)
+            latest_branch = active_branches[0]
+            
+            # Check if there's an open PR for this branch
+            prs_url = f"https://api.github.com/repos/{repo_path}/pulls"
+            pr_params = {'state': 'open', 'head': f"{repo_path.split('/')[0]}:{latest_branch['name']}"}
+            pr_response = requests.get(prs_url, headers=headers, params=pr_params, timeout=10)
+            
+            pr_info = None
+            if pr_response.status_code == 200:
+                prs = pr_response.json()
+                if prs:
+                    pr_info = {
+                        'number': prs[0]['number'],
+                        'title': prs[0]['title'],
+                        'url': prs[0]['html_url']
+                    }
+            
+            return {
+                'branch_name': latest_branch['name'],
+                'branch_date': latest_branch['date'],
+                'branch_author': commit_data['commit']['author']['name'],
+                'pr': pr_info
+            }
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching branch info for {repo_path}: {e}")
+            return None
+        except json.JSONDecodeError as e:
+            print(f"Error parsing branch JSON for {repo_path}: {e}")
+            return None
+        except Exception as e:
+            print(f"Unexpected error fetching branch info for {repo_path}: {e}")
+            return None
     
     @commands.command(name="gitcheck", help="Check recent commits on Project Epoch repositories")
     async def gitcheck_command(self, ctx):
@@ -123,6 +194,9 @@ class GitCheckCog(commands.Cog):
         for repo in repos_to_check:
             commit_data = await self.get_latest_commit(repo)
             if commit_data:
+                # Also get latest branch and PR info
+                branch_info = await self.get_latest_branch_and_pr(commit_data['repo_path'])
+                commit_data['branch_info'] = branch_info
                 commit_info.append(commit_data)
             else:
                 commit_info.append({
@@ -171,6 +245,41 @@ class GitCheckCog(commands.Cog):
                         f"**Author:** {commit['author']}\n"
                         f"**When:** {time_ago}"
                     )
+                    
+                    # Add latest branch and PR info if available
+                    if commit.get('branch_info'):
+                        branch_info = commit['branch_info']
+                        branch_text = branch_info['branch_name']
+                        
+                        # Calculate time ago for the branch commit
+                        branch_time_ago = self.format_time_ago(branch_info['branch_date'])
+                        
+                        if branch_info['pr']:
+                            pr = branch_info['pr']
+                            branch_text += f" ([PR #{pr['number']}]({pr['url']}))"
+                        
+                        branch_text += f" - {branch_time_ago}"
+                        field_value += f"\n**Latest Work/Testing:** {branch_text}"
+                        
+                        # Add fun developer appreciation if commit is recent (less than 1 hour)
+                        branch_commit_time = datetime.fromisoformat(branch_info['branch_date'].replace('Z', '+00:00'))
+                        now = datetime.now(timezone.utc)
+                        time_diff = now - branch_commit_time
+                        
+                        if time_diff.total_seconds() < 3600:  # Less than 1 hour
+                            author = branch_info['branch_author']
+                            appreciation_messages = [
+                                f"🔥 The devs are cooking! Blessed be **{author}**! 🙏",
+                                f"⚡ Fresh code alert! **{author}** is on fire! 🔥",
+                                f"🚀 Active development detected! Praise **{author}**! ✨",
+                                f"💫 **{author}** is grinding hard! The dedication! 👑",
+                                f"🎯 Hot commits incoming! **{author}** never sleeps! ⭐",
+                                f"🔨 **{author}** is building the future! Legend! 🏆",
+                                f"⚙️ Code machine **{author}** at work! Pure magic! ✨"
+                            ]
+                            import random
+                            appreciation = random.choice(appreciation_messages)
+                            field_value += f"\n*{appreciation}*"
                     
                     embed.add_field(
                         name=f"📦 {repo_display}",
