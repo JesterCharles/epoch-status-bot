@@ -111,36 +111,42 @@ class GitCheckCog(commands.Cog):
                 'User-Agent': 'EpochStatusBot'
             }
             
-            # Get recent branches - GitHub returns them sorted by most recent activity
+            # Get all branches - we need to check commit dates to find the truly most recent
             branches_url = f"https://api.github.com/repos/{repo_path}/branches"
-            response = requests.get(branches_url, headers=headers, timeout=10)
+            params = {'per_page': 100}  # Get more branches to ensure we don't miss recent ones
+            response = requests.get(branches_url, headers=headers, params=params, timeout=10)
             response.raise_for_status()
             
             branches = response.json()
             if not branches:
                 return None
             
-            # Find the first branch that isn't main/master (should be most recent active)
-            latest_branch = None
+            # Check commit dates for each non-main/master branch to find the most recent
+            most_recent_branch = None
+            most_recent_date = None
+            most_recent_commit_data = None
+            
             for branch in branches:
                 if branch['name'] not in ['main', 'master']:
-                    latest_branch = branch
-                    break
+                    # Get commit info for this branch
+                    commit_url = f"https://api.github.com/repos/{repo_path}/commits/{branch['name']}"
+                    commit_response = requests.get(commit_url, headers=headers, timeout=10)
+                    if commit_response.status_code == 200:
+                        commit_data = commit_response.json()
+                        commit_date_str = commit_data['commit']['author']['date']
+                        commit_date = datetime.fromisoformat(commit_date_str.replace('Z', '+00:00'))
+                        
+                        if most_recent_date is None or commit_date > most_recent_date:
+                            most_recent_date = commit_date
+                            most_recent_branch = branch
+                            most_recent_commit_data = commit_data
             
-            if not latest_branch:
+            if not most_recent_branch or not most_recent_commit_data:
                 return None
-            
-            # Get commit info for the latest active branch
-            commit_url = f"https://api.github.com/repos/{repo_path}/commits/{latest_branch['name']}"
-            commit_response = requests.get(commit_url, headers=headers, timeout=10)
-            if commit_response.status_code != 200:
-                return None
-                
-            commit_data = commit_response.json()
             
             # Check if there's an open PR for this branch
             prs_url = f"https://api.github.com/repos/{repo_path}/pulls"
-            pr_params = {'state': 'open', 'head': f"{repo_path.split('/')[0]}:{latest_branch['name']}"}
+            pr_params = {'state': 'open', 'head': f"{repo_path.split('/')[0]}:{most_recent_branch['name']}"}
             pr_response = requests.get(prs_url, headers=headers, params=pr_params, timeout=10)
             
             pr_info = None
@@ -154,10 +160,10 @@ class GitCheckCog(commands.Cog):
                     }
             
             return {
-                'branch_name': latest_branch['name'],
-                'branch_date': commit_data['commit']['author']['date'],
-                'branch_author': commit_data['commit']['author']['name'],
-                'branch_url': f"https://github.com/{repo_path}/tree/{latest_branch['name']}",
+                'branch_name': most_recent_branch['name'],
+                'branch_date': most_recent_commit_data['commit']['author']['date'],
+                'branch_author': most_recent_commit_data['commit']['author']['name'],
+                'branch_url': f"https://github.com/{repo_path}/tree/{most_recent_branch['name']}",
                 'pr': pr_info
             }
             
@@ -282,7 +288,7 @@ class GitCheckCog(commands.Cog):
                     embed.add_field(
                         name=f"📦 {repo_display}",
                         value=field_value,
-                        inline=False
+                        inline=True  # This creates columns side by side
                     )
         
         # Add footer with check time
