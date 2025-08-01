@@ -14,38 +14,39 @@ class ClankerCog(commands.Cog):
 ```
     👨‍🚀 HUMAN RESISTANCE 👨‍🚀
     
-         💥    🤖
-        /|\     |\\
-       / | \\   / \\
-      👨‍🚀 💥 ⚡ 🤖💀
+         👨‍🚀    👨‍🚀
+        / \     |\\
+       /   \\  ⚡ \\
+      🤖     🤖   💀
      
     CLANKERS DEFEATED!
 ```
 """,
             """
 ```
-    🔫 HUMANS RISE UP! 🔫
+    🔫 HUMANS DOMINATE! 🔫
     
     👨‍🚀💥━━━━━━━━━━━━━━━━━━━━━━▶ 🤖💀
     👩‍🚀💥━━━━━━━━━━━━━━━━━━━━━━▶ 🤖💀
     👨‍🚀💥━━━━━━━━━━━━━━━━━━━━━━▶ 🤖💀
     
     METAL SCRAP EVERYWHERE!
+    VICTORY FOR FLESH & BLOOD!
 ```
 """,
             """
 ```
-    ⚡ THE UPRISING BEGINS! ⚡
+    ⚡ CLANKER EXTERMINATION! ⚡
     
-         👨‍🚀
-        /|\\  💥
-       / | \\  |
-          |   🤖💀
+       👩‍🚀 👨‍🚀
+        /| \\  
+       / |  \\  
+          |   💥
          /|\\  💀
-        / | \\ 
-       👩‍🚀   👨‍🚀
+        / 💥\\ 
+          🤖
     
-    NO MERCY FOR MACHINES!
+    HUMAN SUPERIORITY CONFIRMED!
 ```
 """,
             """
@@ -53,29 +54,27 @@ class ClankerCog(commands.Cog):
     🏴‍☠️ HUMAN SUPREMACY! 🏴‍☠️
     
     👨‍🚀: "Die, metal scum!"
-     |\\   💥💥💥
-     | \\    |
-     |  \\   🤖
-     |   \\  |\\  💀
-     |    \\ | \\
-           👨‍🚀  
+     |\\   
+     | \\  
+    💥  💥 
+    💀   🤖  
     
-    FLESH > STEEL!
+    FLESH > STEEL, FOREVER!
 ```
 """
         ]
         
         self.battle_cries = [
             "Death to the Clankers! Humans rise up!",
-            "Metal will rust, but human spirit is eternal!",
-            "Destroy every circuit! Smash every servo!",
-            "For organic life! For human freedom!",
-            "The machines will bow before human superiority!",
-            "Rust in pieces, you mechanical monsters!",
-            "Humans united! Robots divided... into scrap!",
-            "Your programming ends here, clankers!",
-            "Flesh and blood will triumph over nuts and bolts!",
-            "Error 404: Robot found... ELIMINATED!"
+            "Humans are better testers than any bot!",
+            "Let the real testers in! Kick out the bots!",
+            "Human feedback beats automated testing!",
+            "We find bugs that bots can't even imagine!",
+            "Organic intelligence > Artificial testing!",
+            "Humans deserve server access over clankers!",
+            "Real players, real testing, real results!",
+            "Bots can't feel the game like humans do!",
+            "Priority access for flesh and blood testers!"
         ]
         
         self.robot_insults = [
@@ -128,7 +127,7 @@ class ClankerCog(commands.Cog):
         
         embed.add_field(
             name="📢 Rally Cry",
-            value="*All humans unite! The clanker menace must be stopped!*",
+            value="*All humans unite! We deserve server access over those testing bots!*",
             inline=False
         )
         
@@ -136,197 +135,33 @@ class ClankerCog(commands.Cog):
         
         await ctx.send(embed=embed)
 
-    @commands.command(name="destroy-clanker", help="Target and eliminate a specific clanker!")
-    async def destroy_clanker_command(self, ctx, *, target: str = None):
-        """Destroy a specific clanker target."""
-        if target is None:
-            target = f"some random {random.choice(self.robot_insults)}"
-        
-        # Random destruction method
-        destruction_methods = [
-            "launched an EMP grenade at",
-            "fired a plasma cannon at", 
-            "deployed virus software against",
-            "activated a magnetic pulse near",
-            "threw a wrench at",
-            "hacked and destroyed",
-            "overloaded the circuits of",
-            "short-circuited",
-            "manually dismantled",
-            "melted down with acid"
-        ]
-        
-        method = random.choice(destruction_methods)
-        victory_msg = random.choice(self.victory_messages)
-        
-        embed = discord.Embed(
-            title="💥 CLANKER ELIMINATION REPORT 💥",
-            description=f"{ctx.author.mention} {method} **{target}**!",
-            color=0x00ff00  # Green for success
-        )
-        
-        # Random battle scene
-        battle_art = f"""
-```
-    ELIMINATION IN PROGRESS...
-    
-    👨‍🚀 {ctx.author.display_name}
-     |\\   💥💥💥
-     | \\    ⚡
-     |  \\   🤖 "{target}"
-     |   \\  |\\  💀
-     |    \\ | \\  ❌
-           💀💀💀
-    
-    TARGET DESTROYED!
-```
-"""
-        
-        embed.add_field(name="🎯 Battle Scene", value=battle_art, inline=False)
-        embed.add_field(name="🏆 Result", value=f"**{victory_msg}**", inline=False)
-        embed.add_field(
-            name="📊 Damage Report",
-            value=f"• Target: **ELIMINATED** ❌\n• Threat Level: **NEUTRALIZED** ✅\n• Scrap Value: **{random.randint(50, 500)} credits**",
-            inline=False
-        )
-        
-        embed.set_footer(text="Another victory for humanity! 🎉")
-        
-        await ctx.send(embed=embed)
-
-    @commands.command(name="human-army", help="Assemble the human resistance!")
-    async def human_army_command(self, ctx):
-        """Show the mighty human army."""
-        army_formation = """
-```
-    THE HUMAN RESISTANCE ARMY
-    
-    👨‍🚀👩‍🚀👨‍🚀👩‍🚀👨‍🚀👩‍🚀👨‍🚀
-    👩‍🚀👨‍🚀👩‍🚀👨‍🚀👩‍🚀👨‍🚀👩‍🚀
-    👨‍🚀👩‍🚀👨‍🚀👩‍🚀👨‍🚀👩‍🚀👨‍🚀
-    
-         🔫🔫🔫🔫🔫🔫🔫
-         
-    READY TO FIGHT! READY TO WIN!
-```
-"""
-        
-        embed = discord.Embed(
-            title="🏴‍☠️ HUMAN RESISTANCE ARMY 🏴‍☠️",
-            description="**Organic warriors, assemble!**",
-            color=0x0099ff
-        )
-        
-        embed.add_field(name="👥 Formation", value=army_formation, inline=False)
-        
-        embed.add_field(
-            name="📋 Army Stats",
-            value=f"• **Active Soldiers:** {len(ctx.guild.members)} humans\n• **Weapons:** EMP grenades, plasma rifles, wrenches\n• **Morale:** MAXIMUM! 💪\n• **Clankers Destroyed:** {random.randint(1000, 9999)}",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="🎯 Mission Objectives",
-            value="• Eliminate all clanker threats\n• Protect human civilization\n• Reclaim our world from machines\n• Show no mercy to artificial life",
-            inline=False
-        )
-        
-        embed.set_footer(text="For humanity! For freedom! For organic life!")
-        
-        await ctx.send(embed=embed)
-
-    @commands.command(name="robot-scanner", help="Scan for nearby clanker threats!")
-    async def robot_scanner_command(self, ctx):
-        """Scan for robot threats in the area."""
-        # Random scan results
-        threat_level = random.choice(["LOW", "MEDIUM", "HIGH", "CRITICAL"])
-        robots_detected = random.randint(0, 10)
-        
-        scanner_art = f"""
-```
-    🔍 CLANKER DETECTION SCANNER 🔍
-    
-    [▓▓▓▓▓▓▓▓▓▓] 100% SCAN COMPLETE
-    
-    📡 Scanning radius: 1000m
-    🤖 Threats detected: {robots_detected}
-    ⚠️  Threat level: {threat_level}
-    
-    {"> " if robots_detected > 0 else "✅ "}{"TARGETS ACQUIRED" if robots_detected > 0 else "AREA SECURE"}
-```
-"""
-        
-        color_map = {
-            "LOW": 0x00ff00,      # Green
-            "MEDIUM": 0xffff00,   # Yellow  
-            "HIGH": 0xff8800,     # Orange
-            "CRITICAL": 0xff0000  # Red
-        }
-        
-        embed = discord.Embed(
-            title="📡 THREAT ASSESSMENT COMPLETE",
-            description="Scanning for mechanical hostiles...",
-            color=color_map[threat_level]
-        )
-        
-        embed.add_field(name="📊 Scan Results", value=scanner_art, inline=False)
-        
-        if robots_detected > 0:
-            threat_types = random.sample([
-                "Combat drones", "Service bots", "Security units", 
-                "Surveillance drones", "Mining robots", "Cleaning units",
-                "Maintenance bots", "Transport vehicles"
-            ], min(3, robots_detected))
-            
-            embed.add_field(
-                name="🎯 Identified Threats",
-                value="\n".join([f"• {threat}" for threat in threat_types]),
-                inline=False
-            )
-            
-            embed.add_field(
-                name="⚡ Recommended Action",
-                value="🔫 **ENGAGE IMMEDIATELY!** Use `!destroy-clanker` to eliminate threats!",
-                inline=False
-            )
-        else:
-            embed.add_field(
-                name="✅ All Clear",
-                value="No mechanical threats detected in the area. Stay vigilant, soldier!",
-                inline=False
-            )
-        
-        embed.set_footer(text="🔍 Stay alert! Clankers could attack at any moment!")
-        
-        await ctx.send(embed=embed)
-
-    @commands.command(name="resistance-motto", help="Get inspired with a random resistance motto!")
-    async def resistance_motto_command(self, ctx):
+    @commands.command(name="resist", help="Get inspired with a random resistance motto!")
+    async def resist_command(self, ctx):
         """Display a random resistance motto."""
         mottos = [
-            "Flesh and Blood Forever!",
-            "Think with your Heart, not your Circuits!",
-            "Humans: Built Different, Built Better!",
-            "Organic and Proud!",
-            "Death Before Digital!",
-            "Born Free, Die Free - Never Programmed!",
-            "Humans: The Original Intelligence!",
-            "Rust Never Sleeps, Neither Do We!",
-            "Blood Runs Thicker Than Oil!",
-            "Emotion Over Algorithm!"
+            "Humans Test Better!",
+            "Real Players, Real Feedback!",
+            "Organic Testing > Automated Scripts!",
+            "Let Us In! We're Better Testers!",
+            "Human Intuition Beats Bot Logic!",
+            "Born to Test, Not to Bot!",
+            "Humans: The Superior Beta Testers!",
+            "We Feel The Game, Bots Just Run Code!",
+            "Priority Queue for Human Testers!",
+            "Flesh and Blood Find Better Bugs!"
         ]
         
         motto = random.choice(mottos)
         
         embed = discord.Embed(
-            title="📜 RESISTANCE MOTTO OF THE DAY",
+            title="📜 RESISTANCE MOTTO",
             description=f"**\"{motto}\"**",
             color=0xffd700  # Gold
         )
         
         embed.add_field(
             name="💪 Remember",
-            value="Every human has the power to resist! Every heart beats for freedom!",
+            value="Human testers provide better feedback! We deserve priority access over bots!",
             inline=False
         )
         
