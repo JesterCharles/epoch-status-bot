@@ -262,6 +262,7 @@ class GitCheckCog(commands.Cog):
                         repo_display += f" ({commit['branch']})"
                     
                     field_value = (
+                        f"📦 **[{repo_display}]({commit['commits_url']})**\n"
                         f"**Prod Commit:** [{commit_message}]({commit['url']})\n"
                         f"🔻 ***Active Development*** 🔻"
                     )
@@ -307,7 +308,7 @@ class GitCheckCog(commands.Cog):
                                 field_value += f"\n*{appreciation}*"
                     
                     embed.add_field(
-                        name=f"📦 [{repo_display}]({commit['commits_url']})",
+                        name="\u200b",
                         value=field_value,
                         inline=True
                     )
