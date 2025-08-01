@@ -59,7 +59,7 @@ A comprehensive betting system for server launch times, designed to keep the com
 - **Automatic Messaging:** System posts rollover updates and jackpot information automatically
 
 ### GitHub Repository Monitoring 🔍
-Keep track of Project Epoch development progress by monitoring their GitHub repositories for recent commits.
+Keep track of Project Epoch development progress by monitoring their GitHub repositories for recent commits and active development work.
 
 #### GitCheck Features
 - **Project Epoch Focus:** Automatically checks TrinityCore (epoch-core) and tswow (epoch) repositories
@@ -67,13 +67,34 @@ Keep track of Project Epoch development progress by monitoring their GitHub repo
 - **Time Tracking:** Displays how long ago each commit was made (e.g., "2 hours ago", "3 days ago")
 - **Smart Links:** Repository names link to commit history, latest commits link directly to the specific commit
 - **Branch Support:** Monitors the correct development branches (epoch-core and epoch)
+- **Latest Work/Testing:** Shows the most recent active development branch and any associated pull requests
+- **PR Integration:** Displays active pull request links when available for latest branches
 
 #### GitCheck Commands
-- `!gitcheck` — Check latest commits on both Project Epoch repositories
+- `!gitcheck` — Check latest commits on both Project Epoch repositories plus latest active branches and PRs
 
 #### Monitored Repositories
 - **TrinityCore:** [Project-Epoch/TrinityCore](https://github.com/Project-Epoch/TrinityCore) (epoch-core branch)
 - **tswow:** [Project-Epoch/tswow](https://github.com/Project-Epoch/tswow) (epoch branch)
+
+#### Latest Work Display Format
+- **With PR:** `branch-name (PR #123)` — Links directly to the pull request
+- **Without PR:** `branch-name` — Shows the active development branch
+- **Data Source:** Automatically scans active branches for both repositories
+
+### Anti-Bot Resistance Commands 🤖❌
+Fun commands for rallying against automated testing bots and advocating for human priority in server testing.
+
+#### Clanker Features
+- **Human Superiority:** Themed around humans being better testers than bots
+- **Server Access Rights:** Advocates for human priority over automated testing
+- **ASCII Art:** Visual battle scenes showing humans defeating robots
+- **Random Elements:** Varied battle cries and resistance mottos for replay value
+
+#### Clanker Commands
+- `!clankers` — Rally cry with ASCII art showing humans defeating bots, plus random battle messages
+- `!resist` — Display random resistance mottos about human testing superiority
+
 
 ### General Features
 - **Persistent Storage:** Uses SQLite to store notification channels, opt-in users, gambling data, and all configurations per guild
@@ -143,7 +164,8 @@ The bot will automatically:
 - `db.py` — SQLite database helper class with support for both status monitoring and gambling features.
 - `cogs/` — Discord bot command modules organized by feature
   - `gambling.py` — Complete gambling system with betting, jackpots, and user management
-  - `gitcheck.py` — GitHub repository monitoring for tracking recent commits
+  - `gitcheck.py` — GitHub repository monitoring for tracking recent commits and active development
+  - `clanker.py` — Anti-bot resistance commands for human testing superiority
 - `requirements.txt` — Python dependencies (includes pytz for timezone support).
 - `.env.example` — Example environment file (copy to `.env` and fill in your values).
 - `.gitignore` — Ensures secrets and DB files are not committed.
