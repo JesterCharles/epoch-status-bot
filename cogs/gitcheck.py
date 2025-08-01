@@ -4,6 +4,7 @@ import requests
 import json
 from datetime import datetime, timezone
 from typing import Optional
+import asyncio
 
 class GitCheckCog(commands.Cog):
     """GitHub repository check system for monitoring recent commits."""
@@ -111,9 +112,9 @@ class GitCheckCog(commands.Cog):
                 'User-Agent': 'EpochStatusBot'
             }
             
-            # Get all branches - we need to check commit dates to find the truly most recent
+            # Get fewer branches initially to reduce API calls
             branches_url = f"https://api.github.com/repos/{repo_path}/branches"
-            params = {'per_page': 100}  # Get more branches to ensure we don't miss recent ones
+            params = {'per_page': 20}  # Reduced from 100 to limit API calls
             response = requests.get(branches_url, headers=headers, params=params, timeout=10)
             response.raise_for_status()
             
@@ -122,12 +123,20 @@ class GitCheckCog(commands.Cog):
                 return None
             
             # Check commit dates for each non-main/master branch to find the most recent
+            # But limit to first 10 non-main branches to avoid rate limiting
             most_recent_branch = None
             most_recent_date = None
             most_recent_commit_data = None
+            checked_count = 0
+            max_branches_to_check = 10
             
             for branch in branches:
-                if branch['name'] not in ['main', 'master']:
+                if branch['name'] not in ['main', 'master'] and checked_count < max_branches_to_check:
+                    checked_count += 1
+                    # Add small delay between requests to avoid rate limiting
+                    if checked_count > 1:
+                        await asyncio.sleep(0.1)  # 100ms delay between requests
+                    
                     # Get commit info for this branch
                     commit_url = f"https://api.github.com/repos/{repo_path}/commits/{branch['name']}"
                     commit_response = requests.get(commit_url, headers=headers, timeout=10)
@@ -140,9 +149,16 @@ class GitCheckCog(commands.Cog):
                             most_recent_date = commit_date
                             most_recent_branch = branch
                             most_recent_commit_data = commit_data
+                    elif commit_response.status_code == 429:
+                        # If we hit rate limit, break and use what we have
+                        print(f"Rate limit hit while checking branches for {repo_path}, using best result so far")
+                        break
             
             if not most_recent_branch or not most_recent_commit_data:
                 return None
+            
+            # Small delay before PR check
+            await asyncio.sleep(0.1)
             
             # Check if there's an open PR for this branch
             prs_url = f"https://api.github.com/repos/{repo_path}/pulls"
@@ -158,6 +174,8 @@ class GitCheckCog(commands.Cog):
                         'title': prs[0]['title'],
                         'url': prs[0]['html_url']
                     }
+            elif pr_response.status_code == 429:
+                print(f"Rate limit hit while checking PRs for {repo_path}")
             
             return {
                 'branch_name': most_recent_branch['name'],
@@ -194,10 +212,14 @@ class GitCheckCog(commands.Cog):
         
         # Collect commit information
         commit_info = []
-        for repo in repos_to_check:
+        for i, repo in enumerate(repos_to_check):
+            if i > 0:  # Add delay between repositories
+                await asyncio.sleep(0.2)  # 200ms delay between repo checks
+                
             commit_data = await self.get_latest_commit(repo)
             if commit_data:
-                # Also get latest branch and PR info
+                # Also get latest branch and PR info (with additional delay)
+                await asyncio.sleep(0.1)
                 branch_info = await self.get_latest_branch_and_pr(commit_data['repo_path'])
                 commit_data['branch_info'] = branch_info
                 commit_info.append(commit_data)
