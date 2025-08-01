@@ -111,7 +111,7 @@ class GitCheckCog(commands.Cog):
                 'User-Agent': 'EpochStatusBot'
             }
             
-            # Get recent branches (excluding main/master)
+            # Get recent branches - GitHub returns them sorted by most recent activity
             branches_url = f"https://api.github.com/repos/{repo_path}/branches"
             response = requests.get(branches_url, headers=headers, timeout=10)
             response.raise_for_status()
@@ -120,27 +120,23 @@ class GitCheckCog(commands.Cog):
             if not branches:
                 return None
             
-            # Filter out main/master branches and sort by commit date
-            active_branches = []
+            # Find the first branch that isn't main/master (should be most recent active)
+            latest_branch = None
             for branch in branches:
                 if branch['name'] not in ['main', 'master']:
-                    # Get commit info for this branch
-                    commit_url = f"https://api.github.com/repos/{repo_path}/commits/{branch['name']}"
-                    commit_response = requests.get(commit_url, headers=headers, timeout=10)
-                    if commit_response.status_code == 200:
-                        commit_data = commit_response.json()
-                        active_branches.append({
-                            'name': branch['name'],
-                            'date': commit_data['commit']['author']['date'],
-                            'sha': commit_data['sha']
-                        })
+                    latest_branch = branch
+                    break
             
-            if not active_branches:
+            if not latest_branch:
                 return None
             
-            # Sort by most recent commit date
-            active_branches.sort(key=lambda x: x['date'], reverse=True)
-            latest_branch = active_branches[0]
+            # Get commit info for the latest active branch
+            commit_url = f"https://api.github.com/repos/{repo_path}/commits/{latest_branch['name']}"
+            commit_response = requests.get(commit_url, headers=headers, timeout=10)
+            if commit_response.status_code != 200:
+                return None
+                
+            commit_data = commit_response.json()
             
             # Check if there's an open PR for this branch
             prs_url = f"https://api.github.com/repos/{repo_path}/pulls"
@@ -159,8 +155,9 @@ class GitCheckCog(commands.Cog):
             
             return {
                 'branch_name': latest_branch['name'],
-                'branch_date': latest_branch['date'],
+                'branch_date': commit_data['commit']['author']['date'],
                 'branch_author': commit_data['commit']['author']['name'],
+                'branch_url': f"https://github.com/{repo_path}/tree/{latest_branch['name']}",
                 'pr': pr_info
             }
             
@@ -249,7 +246,8 @@ class GitCheckCog(commands.Cog):
                     # Add latest branch and PR info if available
                     if commit.get('branch_info'):
                         branch_info = commit['branch_info']
-                        branch_text = branch_info['branch_name']
+                        # Create clickable branch name link
+                        branch_text = f"[{branch_info['branch_name']}]({branch_info['branch_url']})"
                         
                         # Calculate time ago for the branch commit
                         branch_time_ago = self.format_time_ago(branch_info['branch_date'])
@@ -259,7 +257,7 @@ class GitCheckCog(commands.Cog):
                             branch_text += f" ([PR #{pr['number']}]({pr['url']}))"
                         
                         branch_text += f" - {branch_time_ago}"
-                        field_value += f"\n**Latest Work/Testing:** {branch_text}"
+                        field_value += f"\n**Latest Work:** {branch_text}"
                         
                         # Add fun developer appreciation if commit is recent (less than 1 hour)
                         branch_commit_time = datetime.fromisoformat(branch_info['branch_date'].replace('Z', '+00:00'))
