@@ -104,8 +104,8 @@ class GitCheckCog(commands.Cog):
             print(f"Unexpected error for {repo}: {e}")
             return None
 
-    async def get_latest_branch_and_pr(self, repo_path: str) -> Optional[dict]:
-        """Get the latest active branch and its PR status for a repository."""
+    async def get_latest_branch(self, repo_path: str) -> Optional[dict]:
+        """Get the latest active branch for a repository."""
         try:
             # Remove branch info if present (e.g., "Project-Epoch/TrinityCore:epoch-core" -> "Project-Epoch/TrinityCore")
             if ':' in repo_path:
@@ -121,7 +121,7 @@ class GitCheckCog(commands.Cog):
             response = requests.get(branches_url, headers=headers, timeout=10)
             response.raise_for_status()
             
-            # Parse HTML to find branch and PR information from the table
+            # Parse HTML to find branch information from the table
             html_content = response.text
             
             import re
@@ -143,8 +143,7 @@ class GitCheckCog(commands.Cog):
             if not branch_matches:
                 return {
                     'branch_name': 'No active branches found',
-                    'branch_url': f"https://github.com/{repo_path}/branches/active",
-                    'pr': None
+                    'branch_url': f"https://github.com/{repo_path}/branches/active"
                 }
             
             # Find the first non-main/master branch
@@ -158,28 +157,8 @@ class GitCheckCog(commands.Cog):
             if not target_branch:
                 return {
                     'branch_name': 'Only main/master branches found',
-                    'branch_url': f"https://github.com/{repo_path}/branches/active",
-                    'pr': None
+                    'branch_url': f"https://github.com/{repo_path}/branches/active"
                 }
-            
-            # Look for PR information - try simpler patterns first
-            pr_patterns = [
-                r'<a[^>]*href="/' + re.escape(repo_path) + r'/pull/(\d+)"',
-                r'href="/' + re.escape(repo_path) + r'/pull/(\d+)"',
-                r'/pull/(\d+)'
-            ]
-            
-            pr_info = None
-            for pr_pattern in pr_patterns:
-                pr_matches = re.findall(pr_pattern, html_content)
-                if pr_matches:
-                    pr_number = pr_matches[0]
-                    pr_info = {
-                        'number': int(pr_number),
-                        'title': f"Pull Request #{pr_number}",
-                        'url': f"https://github.com/{repo_path}/pull/{pr_number}"
-                    }
-                    break
             
             # Get the latest commit info for this branch to check recency and get author
             branch_commit_info = None
@@ -203,7 +182,6 @@ class GitCheckCog(commands.Cog):
             return {
                 'branch_name': target_branch,
                 'branch_url': f"https://github.com/{repo_path}/tree/{target_branch}",
-                'pr': pr_info,
                 'branch_commit': branch_commit_info
             }
             
@@ -240,9 +218,9 @@ class GitCheckCog(commands.Cog):
                 
             commit_data = await self.get_latest_commit(repo)
             if commit_data:
-                # Also get latest branch and PR info (with additional delay)
+                # Also get latest branch info (with additional delay)
                 await asyncio.sleep(0.1)
-                branch_info = await self.get_latest_branch_and_pr(commit_data['repo_path'])
+                branch_info = await self.get_latest_branch(commit_data['repo_path'])
                 commit_data['branch_info'] = branch_info
                 commit_info.append(commit_data)
             else:
@@ -273,24 +251,19 @@ class GitCheckCog(commands.Cog):
                         inline=False
                     )
                 else:
-                    time_ago = self.format_time_ago(commit['date'])
-                    
                     # Truncate long commit messages
                     commit_message = commit['message']
                     if len(commit_message) > 60:
                         commit_message = commit_message[:57] + "..."
                     
-                    # Create repository display name with branch info
+                    # Create repository display name with branch info for the title
                     repo_display = f"{commit['repo_path']}"
                     if commit['branch'] != 'main':
                         repo_display += f" ({commit['branch']})"
                     
                     field_value = (
-                        f"**Repository:** [{repo_display}]({commit['commits_url']})\n"
-                        f"**Latest Commit:** [{commit['sha']}]({commit['url']})\n"
-                        f"**Message:** {commit_message}\n"
-                        f"**Author:** {commit['author']}\n"
-                        f"**When:** {time_ago}"
+                        f"**Prod Commit:** [{commit_message}]({commit['url']})\n"
+                        f"🔻 ***Active Development*** 🔻"
                     )
                     
                     # Add latest branch and PR info if available
@@ -299,11 +272,14 @@ class GitCheckCog(commands.Cog):
                         # Create clickable branch name link
                         branch_text = f"[{branch_info['branch_name']}]({branch_info['branch_url']})"
                         
-                        if branch_info['pr']:
-                            pr = branch_info['pr']
-                            branch_text += f" (PR: [{pr['number']}]({pr['url']}))"
+                        # Get timing for active development work
+                        dev_timing = ""
+                        if branch_info.get('branch_commit'):
+                            branch_commit_time = datetime.fromisoformat(branch_info['branch_commit']['date'].replace('Z', '+00:00'))
+                            dev_time_ago = self.format_time_ago(branch_info['branch_commit']['date'])
+                            dev_timing = f" - {dev_time_ago}"
                         
-                        field_value += f"\n**Active Dev Work:** {branch_text}"
+                        field_value += f"\n**Dev Commit:** {branch_text}{dev_timing}"
                         
                         # Add fun developer appreciation if the branch has recent activity (within last hour)
                         if (branch_info['branch_name'] not in ['No active branches found', 'Only main/master branches found'] 
@@ -331,7 +307,7 @@ class GitCheckCog(commands.Cog):
                                 field_value += f"\n*{appreciation}*"
                     
                     embed.add_field(
-                        name=f"📦 {repo_display}",
+                        name=f"📦 [{repo_display}]({commit['commits_url']})",
                         value=field_value,
                         inline=True
                     )
