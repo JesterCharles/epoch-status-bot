@@ -181,10 +181,30 @@ class GitCheckCog(commands.Cog):
                     }
                     break
             
+            # Get the latest commit info for this branch to check recency and get author
+            branch_commit_info = None
+            if target_branch:
+                try:
+                    commit_url = f"https://api.github.com/repos/{repo_path}/commits/{target_branch}"
+                    commit_headers = {
+                        'Accept': 'application/vnd.github.v3+json',
+                        'User-Agent': 'EpochStatusBot'
+                    }
+                    commit_response = requests.get(commit_url, headers=commit_headers, timeout=10)
+                    if commit_response.status_code == 200:
+                        commit_data = commit_response.json()
+                        branch_commit_info = {
+                            'author': commit_data['commit']['author']['name'],
+                            'date': commit_data['commit']['author']['date']
+                        }
+                except:
+                    pass  # If we can't get branch commit info, continue without it
+            
             return {
                 'branch_name': target_branch,
                 'branch_url': f"https://github.com/{repo_path}/tree/{target_branch}",
-                'pr': pr_info
+                'pr': pr_info,
+                'branch_commit': branch_commit_info
             }
             
         except requests.exceptions.RequestException as e:
@@ -283,25 +303,32 @@ class GitCheckCog(commands.Cog):
                             pr = branch_info['pr']
                             branch_text += f" (PR: [{pr['number']}]({pr['url']}))"
                         
-                        field_value += f"\n**Latest Branch:** {branch_text}"
+                        field_value += f"\n**Active Dev Work:** {branch_text}"
                         
-                        # Add fun developer appreciation if the latest branch has recent activity
-                        # We'll assume recent activity if there's an active branch (since it came from the active branches page)
-                        if branch_info['branch_name'] not in ['No active branches found', 'Only main/master branches found']:
-                            # Get a random developer name from recent commits
-                            author = commit['author']  # Use the commit author as the active developer
-                            appreciation_messages = [
-                                f"🔥 The devs are cooking! Blessed be **{author}**! 🙏",
-                                f"⚡ Fresh code alert! **{author}** is on fire! 🔥",
-                                f"🚀 Active development detected! Praise **{author}**! ✨",
-                                f"💫 **{author}** is grinding hard! The dedication! 👑",
-                                f"🎯 Hot commits incoming! **{author}** never sleeps! ⭐",
-                                f"🔨 **{author}** is building the future! Legend! 🏆",
-                                f"⚙️ Code machine **{author}** at work! Pure magic! ✨"
-                            ]
-                            import random
-                            appreciation = random.choice(appreciation_messages)
-                            field_value += f"\n*{appreciation}*"
+                        # Add fun developer appreciation if the branch has recent activity (within last hour)
+                        if (branch_info['branch_name'] not in ['No active branches found', 'Only main/master branches found'] 
+                            and branch_info.get('branch_commit')):
+                            
+                            branch_commit = branch_info['branch_commit']
+                            branch_commit_time = datetime.fromisoformat(branch_commit['date'].replace('Z', '+00:00'))
+                            now = datetime.now(timezone.utc)
+                            time_diff = now - branch_commit_time
+                            
+                            # Only show appreciation if commit is within the last hour
+                            if time_diff.total_seconds() < 3600:  # Less than 1 hour
+                                author = branch_commit['author']  # Use the branch commit author
+                                appreciation_messages = [
+                                    f"🔥 The devs are cooking! Blessed be **{author}**! 🙏",
+                                    f"⚡ Fresh code alert! **{author}** is on fire! 🔥",
+                                    f"🚀 Active development detected! Praise **{author}**! ✨",
+                                    f"💫 **{author}** is grinding hard! The dedication! 👑",
+                                    f"🎯 Hot commits incoming! **{author}** never sleeps! ⭐",
+                                    f"🔨 **{author}** is building the future! Legend! 🏆",
+                                    f"⚙️ Code machine **{author}** at work! Pure magic! ✨"
+                                ]
+                                import random
+                                appreciation = random.choice(appreciation_messages)
+                                field_value += f"\n*{appreciation}*"
                     
                     embed.add_field(
                         name=f"📦 {repo_display}",
