@@ -111,6 +111,8 @@ class GitCheckCog(commands.Cog):
             if ':' in repo_path:
                 repo_path = repo_path.split(':', 1)[0]
             
+            print(f"DEBUG: Checking active branches for {repo_path}")
+            
             headers = {
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -118,6 +120,7 @@ class GitCheckCog(commands.Cog):
             
             # Get the active branches page
             branches_url = f"https://github.com/{repo_path}/branches/active"
+            print(f"DEBUG: Fetching {branches_url}")
             response = requests.get(branches_url, headers=headers, timeout=10)
             response.raise_for_status()
             
@@ -126,47 +129,68 @@ class GitCheckCog(commands.Cog):
             
             import re
             
-            # Look for table rows that contain branch information
-            # The active branches table has specific patterns for branch names and PR links
+            # Try multiple patterns to find branch links
+            patterns = [
+                r'<a[^>]*href="/' + re.escape(repo_path) + r'/tree/([^"]+)"[^>]*>([^<]+)</a>',
+                r'href="/' + re.escape(repo_path) + r'/tree/([^"]+)"',
+                r'/tree/([^"]+)"[^>]*>([^<]+)</a>'
+            ]
             
-            # Find branch links and their associated PR information
-            # Pattern for branch name in the table
-            branch_pattern = r'<a[^>]*href="/' + re.escape(repo_path) + r'/tree/([^"]+)"[^>]*>([^<]+)</a>'
-            branch_matches = re.findall(branch_pattern, html_content)
+            branch_matches = []
+            for pattern in patterns:
+                matches = re.findall(pattern, html_content)
+                if matches:
+                    branch_matches = matches
+                    print(f"DEBUG: Found branches with pattern: {pattern}")
+                    print(f"DEBUG: Matches: {matches}")
+                    break
             
             if not branch_matches:
-                return None
+                print(f"DEBUG: No branch matches found for {repo_path}")
+                # Fallback: return a simple result indicating we found the page but no branches
+                return {
+                    'branch_name': 'No active branches found',
+                    'branch_url': f"https://github.com/{repo_path}/branches/active",
+                    'pr': None
+                }
             
             # Find the first non-main/master branch
             target_branch = None
             for branch_match in branch_matches:
-                branch_name = branch_match[0]
+                branch_name = branch_match[0] if isinstance(branch_match, tuple) else branch_match
+                print(f"DEBUG: Checking branch: {branch_name}")
                 if branch_name not in ['main', 'master']:
                     target_branch = branch_name
+                    print(f"DEBUG: Selected target branch: {target_branch}")
                     break
             
             if not target_branch:
-                return None
+                print(f"DEBUG: No non-main/master branches found")
+                return {
+                    'branch_name': 'Only main/master branches found',
+                    'branch_url': f"https://github.com/{repo_path}/branches/active",
+                    'pr': None
+                }
             
-            # Look for PR information in the same table row
-            # PR links appear as "Pull request #number" in the table
-            pr_pattern = r'<a[^>]*href="/' + re.escape(repo_path) + r'/pull/(\d+)"[^>]*>.*?#(\d+)[^<]*</a>'
-            pr_matches = re.findall(pr_pattern, html_content)
-            
-            # Also look for PR titles - they appear near the PR links
-            pr_title_pattern = r'<a[^>]*href="/' + re.escape(repo_path) + r'/pull/\d+"[^>]*title="([^"]*)"'
-            pr_title_matches = re.findall(pr_title_pattern, html_content)
+            # Look for PR information - try simpler patterns first
+            pr_patterns = [
+                r'<a[^>]*href="/' + re.escape(repo_path) + r'/pull/(\d+)"',
+                r'href="/' + re.escape(repo_path) + r'/pull/(\d+)"',
+                r'/pull/(\d+)'
+            ]
             
             pr_info = None
-            if pr_matches:
-                # Get the first PR that matches (should be for our target branch)
-                pr_number = pr_matches[0][1]
-                pr_title = pr_title_matches[0] if pr_title_matches else f"Pull Request #{pr_number}"
-                pr_info = {
-                    'number': int(pr_number),
-                    'title': pr_title,
-                    'url': f"https://github.com/{repo_path}/pull/{pr_number}"
-                }
+            for pr_pattern in pr_patterns:
+                pr_matches = re.findall(pr_pattern, html_content)
+                if pr_matches:
+                    pr_number = pr_matches[0]
+                    print(f"DEBUG: Found PR #{pr_number}")
+                    pr_info = {
+                        'number': int(pr_number),
+                        'title': f"Pull Request #{pr_number}",
+                        'url': f"https://github.com/{repo_path}/pull/{pr_number}"
+                    }
+                    break
             
             return {
                 'branch_name': target_branch,
