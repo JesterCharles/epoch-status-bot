@@ -16,12 +16,14 @@ async def check_server(host: str, port: int) -> bool:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port), timeout=3
         )
-        print(f"Async socket check for {host}:{port}: OPEN")
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        print(f"[{timestamp}] Async socket check for {host}:{port}: OPEN")
         writer.close()
         await writer.wait_closed()
         return True
     except Exception as e:
-        print(f"Async socket check for {host}:{port}: CLOSED ({e})")
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        print(f"[{timestamp}] Async socket check for {host}:{port}: CLOSED ({e})")
         return False
 
 async def poll_servers():
@@ -47,7 +49,8 @@ async def poll_servers():
 if __name__ == "__main__":
    async def main():
        while True:
+           timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
            states = await poll_servers()
-           print(states)
+           print(f"[{timestamp}] Server states: {states}")
            await asyncio.sleep(15)
    asyncio.run(main())

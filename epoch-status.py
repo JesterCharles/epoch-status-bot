@@ -1,10 +1,10 @@
 import os
 from dotenv import load_dotenv
 import discord
-import requests
 import asyncio
-import json
+from datetime import datetime, timezone
 from db import Database
+from server_status import poll_servers, SERVERS
 
 # Load environment variables from .env if present
 load_dotenv()
@@ -22,25 +22,14 @@ DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
 if not DISCORD_BOT_TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN environment variable is required.")
 
-# Optional: API_URL
-API_URL = os.environ.get("API_URL", "https://project-epoch-status.com/api/status/realms")
-
 # Optional: CHECK_INTERVAL_SECONDS
 try:
-    CHECK_INTERVAL_SECONDS = int(os.environ.get("CHECK_INTERVAL_SECONDS", "10"))
+    CHECK_INTERVAL_SECONDS = int(os.environ.get("CHECK_INTERVAL_SECONDS", "15"))
 except ValueError: # double check if it's a valid integer
-    CHECK_INTERVAL_SECONDS = 10
+    CHECK_INTERVAL_SECONDS = 15
 
 # Optional: COMMAND_PREFIX
 COMMAND_PREFIX = os.environ.get("COMMAND_PREFIX", "!")
-
-# Optional: DATABASE_FILE
-DATABASE_FILE = os.environ.get("DATABASE_FILE", "bot_settings.db")
-
-# --- Global State Tracking ---
-# This dictionary will store the last known status for each guild (server ID -> True/False)
-# to prevent spamming notifications for repeated online/offline states.
-last_known_guild_status = {}
 
 # --- Discord Bot Setup ---
 
@@ -83,43 +72,28 @@ async def get_notification_channel(guild_id: int) -> int | None:
 async def get_optin_users(guild_id: int):
     return db.get_optin_users(guild_id)
 
-async def fetch_realm_status_data():
-    """
-    Fetches the realm status from the API and returns the status string or None on error.
-    """
-    try:
-        response = requests.get(API_URL)
-        response.raise_for_status()
-        data = response.json()
-        return data  # Return the full JSON
-    except requests.exceptions.RequestException as e:
-        print(f"[{discord.utils.utcnow()}] API Request Error in fetch_realm_status_data: {e}")
-        return None
-    except json.JSONDecodeError as e:
-        print(f"[{discord.utils.utcnow()}] JSON Decode Error in fetch_realm_status_data: Could not parse API response. {e}")
-        return None
-    except Exception as e:
-        print(f"[{discord.utils.utcnow()}] An unexpected error occurred in fetch_realm_status_data: {e}")
-        return None
-
-
 # --- Background Task for Status Checking ---
 @tasks.loop(seconds=CHECK_INTERVAL_SECONDS)
 async def check_realm_status():
     """
-    Periodically checks the realm status API and sends a Discord notification
-    to all configured channels if the realm status changes.
+    Periodically polls server status and sends Discord notifications
+    to all configured channels when status changes.
     """
-
-    data = await fetch_realm_status_data()
-    if data is None:
-        print(f"[{discord.utils.utcnow()}] API status is unknown, skipping realm check for now.")
+    
+    # Poll servers for current status
+    try:
+        server_data = await poll_servers()
+    except Exception as e:
+        print(f"[{discord.utils.utcnow()}] Server polling failed: {e}")
+        return
+    
+    if not server_data:
+        print(f"[{discord.utils.utcnow()}] Server polling returned empty data, skipping notification check.")
         return
 
-    auth_server_status = data.get("authServerStatus", False)
-    realms = data.get("realms", [])
-    kezan = next((realm for realm in realms if realm.get("name") == "Kezan"), None)
-    kezan_online = kezan.get("worldServerOnline", False) if kezan else False
+    # Get server status from polling results
+    auth_server_status = server_data.get("Auth", {}).get("online", False)
+    kezan_online = server_data.get("Kezan", {}).get("online", False)
 
     # Track last known status for both auth and Kezan world server per guild
     if not hasattr(check_realm_status, "last_status"):
@@ -204,9 +178,9 @@ async def on_ready():
     print('------')
     
     # Database is initialized on db instance creation
-    # Make sure the bot is ready before starting the loop
+    # Start the status checking task
     if not check_realm_status.is_running():
-        print("Starting realm status check loop...")
+        print(f"Starting realm status check loop (every {CHECK_INTERVAL_SECONDS}s)...")
         check_realm_status.start()
 
 # --- Run the Bot ---
