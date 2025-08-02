@@ -4,7 +4,7 @@ import discord
 import asyncio
 from datetime import datetime, timezone
 from db import Database
-from server_status import poll_servers, SERVERS
+from server_status import poll_servers
 
 # Load environment variables from .env if present
 load_dotenv()
@@ -165,6 +165,8 @@ async def check_realm_status():
         # Log status if nothing changed
         if (auth_server_status == prev_auth) and (kezan_online == prev_kezan):
             print(f"[{discord.utils.utcnow()}] Guild '{guild.name}' ({guild_id}): Auth server is {'ONLINE' if auth_server_status else 'OFFLINE'}, Kezan is {'ONLINE' if kezan_online else 'OFFLINE'} (no change).")
+
+
 
 
 # --- Discord Event Handlers ---

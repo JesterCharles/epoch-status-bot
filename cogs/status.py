@@ -83,31 +83,71 @@ class StatusCog(commands.Cog):
             
             # Auth server status
             auth_emoji = "🟢" if auth_status else "🔴"
+            auth_value = f"{auth_emoji} {'ONLINE' if auth_status else 'OFFLINE'}"
+            
+            # Add last online time if available and server is offline
+            if not auth_status and data.get("Auth", {}).get("lastOnline"):
+                auth_value += f"\nLast seen: {data['Auth']['lastOnline']}"
+            
             embed.add_field(
                 name="🔐 Authentication Server",
-                value=f"{auth_emoji} {'ONLINE' if auth_status else 'OFFLINE'}",
+                value=auth_value,
                 inline=True
             )
             
             # Kezan server status
             kezan_emoji = "🟢" if kezan_online else "🔴"
+            kezan_value = f"{kezan_emoji} {'ONLINE' if kezan_online else 'OFFLINE'}"
+            
+            # Add last online time if available and server is offline (check both data structure and realm object)
+            if not kezan_online:
+                last_online = None
+                if data.get("Kezan", {}).get("lastOnline"):
+                    last_online = data["Kezan"]["lastOnline"]
+                elif kezan and kezan.get("lastOnline"):
+                    last_online = kezan["lastOnline"]
+                
+                if last_online:
+                    kezan_value += f"\nLast seen: {last_online}"
+            
             embed.add_field(
                 name="🌍 Kezan World Server",
-                value=f"{kezan_emoji} {'ONLINE' if kezan_online else 'OFFLINE'}",
+                value=kezan_value,
                 inline=True
             )
             
             # Gurubashi server status
             gurubashi_emoji = "🟢" if gurubashi_online else "🔴"
+            gurubashi_value = f"{gurubashi_emoji} {'ONLINE' if gurubashi_online else 'OFFLINE'}"
+            
+            # Add last online time if available and server is offline (check both data structure and realm object)
+            if not gurubashi_online:
+                last_online = None
+                if data.get("Gurubashi", {}).get("lastOnline"):
+                    last_online = data["Gurubashi"]["lastOnline"]
+                elif gurubashi and gurubashi.get("lastOnline"):
+                    last_online = gurubashi["lastOnline"]
+                
+                if last_online:
+                    gurubashi_value += f"\nLast seen: {last_online}"
+            
             embed.add_field(
                 name="🏝️ Gurubashi World Server",
-                value=f"{gurubashi_emoji} {'ONLINE' if gurubashi_online else 'OFFLINE'}",
+                value=gurubashi_value,
                 inline=True
             )
             
-            # Add footer
+            # Add footer with data source information
+            data_source = data.get("source", "Unknown")
+            if data_source == "Socket":
+                footer_text = "Status checked via direct server connection"
+            elif data_source == "API":
+                footer_text = "Status checked via API backup (last online times in CST)"
+            else:
+                footer_text = "Status checked via direct connection (API backup available)"
+            
             embed.set_footer(
-                text="Status checked via direct server connection",
+                text=footer_text,
                 icon_url="https://cdn.discordapp.com/emojis/852558866151800832.png"  # Optional: server icon
             )
             
