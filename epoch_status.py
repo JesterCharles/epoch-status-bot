@@ -4,7 +4,7 @@ import discord
 import asyncio
 from datetime import datetime, timezone
 from db import Database
-from server_status import poll_servers, check_servers_via_api, SERVERS
+from server_status import poll_servers
 
 # Load environment variables from .env if present
 load_dotenv()
