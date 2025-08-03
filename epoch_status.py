@@ -94,8 +94,9 @@ async def check_realm_status():
     # Get server status from polling results
     auth_server_status = server_data.get("Auth", {}).get("online", False)
     kezan_online = server_data.get("Kezan", {}).get("online", False)
+    gurubashi_online = server_data.get("Gurubashi", {}).get("online", False)
 
-    # Track last known status for both auth and Kezan world server per guild
+    # Track last known status for auth and both world servers per guild
     if not hasattr(check_realm_status, "last_status"):
         check_realm_status.last_status = {}
 
@@ -114,10 +115,12 @@ async def check_realm_status():
         if guild_id not in check_realm_status.last_status:
             check_realm_status.last_status[guild_id] = {
                 "auth": False,
-                "kezan": False
+                "kezan": False,
+                "gurubashi": False
             }
         prev_auth = check_realm_status.last_status[guild_id]["auth"]
         prev_kezan = check_realm_status.last_status[guild_id]["kezan"]
+        prev_gurubashi = check_realm_status.last_status[guild_id]["gurubashi"]
 
         # Auth server notification (non-@everyone)
         if auth_server_status and not prev_auth:
@@ -158,13 +161,30 @@ async def check_realm_status():
             except Exception as e:
                 print(f"[{discord.utils.utcnow()}] Error sending Kezan message to guild '{guild.name}' ({guild_id}): {e}")
 
+        # World server notifications (standalone, when auth is offline)
+        if not auth_server_status and (kezan_online or gurubashi_online):
+            # Check world servers dynamically
+            world_servers = [
+                ("Kezan", kezan_online, prev_kezan),
+                ("Gurubashi", gurubashi_online, prev_gurubashi)
+            ]
+            
+            for server_name, current_status, previous_status in world_servers:
+                if current_status and not previous_status:
+                    try:
+                        await channel.send(f"The Project Epoch realm **{server_name}** is now **ONLINE**! (Auth server still offline)")
+                        print(f"[{discord.utils.utcnow()}] Guild '{guild.name}' ({guild_id}): {server_name} world server online (auth offline) message sent to channel {channel.name}.")
+                    except Exception as e:
+                        print(f"[{discord.utils.utcnow()}] Error sending standalone {server_name} message to guild '{guild.name}' ({guild_id}): {e}")
+
         # Update last known status
         check_realm_status.last_status[guild_id]["auth"] = auth_server_status
         check_realm_status.last_status[guild_id]["kezan"] = kezan_online
+        check_realm_status.last_status[guild_id]["gurubashi"] = gurubashi_online
 
         # Log status if nothing changed
-        if (auth_server_status == prev_auth) and (kezan_online == prev_kezan):
-            print(f"[{discord.utils.utcnow()}] Guild '{guild.name}' ({guild_id}): Auth server is {'ONLINE' if auth_server_status else 'OFFLINE'}, Kezan is {'ONLINE' if kezan_online else 'OFFLINE'} (no change).")
+        if (auth_server_status == prev_auth) and (kezan_online == prev_kezan) and (gurubashi_online == prev_gurubashi):
+            print(f"[{discord.utils.utcnow()}] Guild '{guild.name}' ({guild_id}): Auth server is {'ONLINE' if auth_server_status else 'OFFLINE'}, Kezan is {'ONLINE' if kezan_online else 'OFFLINE'}, Gurubashi is {'ONLINE' if gurubashi_online else 'OFFLINE'} (no change).")
 
 
 
