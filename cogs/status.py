@@ -1,33 +1,38 @@
 import discord
 from discord.ext import commands
-import requests
-import json
-import os
+import asyncio
+from datetime import datetime, timezone
+from server_status import poll_servers
 
 class StatusCog(commands.Cog):
     """Status checking functionality for Project Epoch realm."""
     
     def __init__(self, bot):
         self.bot = bot
-        self.api_url = os.environ.get("API_URL", "https://project-epoch-status.com/api/status/realms")
 
     async def fetch_realm_status_data(self):
         """
-        Fetches the realm status from the API and returns the status string or None on error.
+        Checks the realm status via direct server connections and returns status data.
         """
         try:
-            response = requests.get(self.api_url)
-            response.raise_for_status()
-            data = response.json()
-            return data  # Return the full JSON
-        except requests.exceptions.RequestException as e:
-            print(f"[{discord.utils.utcnow()}] API Request Error in fetch_realm_status_data: {e}")
-            return None
-        except json.JSONDecodeError as e:
-            print(f"[{discord.utils.utcnow()}] JSON Decode Error in fetch_realm_status_data: Could not parse API response. {e}")
-            return None
+            server_data = await poll_servers()
+            if not server_data:
+                return None
+            
+            # Build status data similar to the old API format
+            auth_status = server_data.get("Auth", {}).get("online", False)
+            kezan_status = server_data.get("Kezan", {}).get("online", False)
+            gurubashi_status = server_data.get("Gurubashi", {}).get("online", False)
+            
+            return {
+                "authServerStatus": auth_status,
+                "realms": [
+                    {"name": "Kezan", "worldServerOnline": kezan_status},
+                    {"name": "Gurubashi", "worldServerOnline": gurubashi_status}
+                ]
+            }
         except Exception as e:
-            print(f"[{discord.utils.utcnow()}] An unexpected error occurred in fetch_realm_status_data: {e}")
+            print(f"[{discord.utils.utcnow()}] Error in fetch_realm_status_data: {e}")
             return None
 
     @commands.command(name="status", help="Checks the current Project Epoch realm status.")
@@ -36,38 +41,127 @@ class StatusCog(commands.Cog):
         A command that checks the current realm status and reports it to the channel where it was invoked.
         Usage: !status
         """
-        status_message = "Checking realm status..."
-        message = await ctx.send(status_message)
-        # Create initial embed
-        embed = discord.Embed(
-            title="🔍 Project Epoch Server Status",
-            description="Checking server status...",
-            color=0xffff00  # Yellow while checking
-        )
-        message = await ctx.send(embed=embed)
+        # Check if bot has basic permissions
+        perms = ctx.channel.permissions_for(ctx.guild.me)
+        if not perms.send_messages:
+            return  # Can't do anything if we can't send messages
+        
+        if not perms.embed_links:
+            try:
+                await ctx.send("❌ I need 'Embed Links' permission to show server status properly.")
+                return
+            except discord.Forbidden:
+                return
+        
+        try:
+            # Create initial embed
+            embed = discord.Embed(
+                title="🔍 Project Epoch Server Status",
+                description="Checking server status...",
+                color=0xffff00  # Yellow while checking
+            )
+            message = await ctx.send(embed=embed)
+        except discord.Forbidden:
+            try:
+                await ctx.send("❌ Missing permissions to send embeds. Please check bot permissions.")
+            except discord.Forbidden:
+                pass  # Can't even send basic messages
+            return
         
         data = await self.fetch_realm_status_data()
         
         if data and isinstance(data, dict):
-            status = data.get("status")
             auth_status = data.get("authServerStatus", False)
             realms = data.get("realms", [])
             kezan = next((realm for realm in realms if realm.get("name") == "Kezan"), None)
             kezan_online = kezan.get("worldServerOnline", False) if kezan else False
+            gurubashi = next((realm for realm in realms if realm.get("name") == "Gurubashi"), None)
+            gurubashi_online = gurubashi.get("worldServerOnline", False) if gurubashi else False
             
-            if status:
-                response_text = (
-                    f"The Project Epoch realm is currently **{status.upper()}**.\n"
-                    f"Auth server: {'ONLINE' if auth_status else 'OFFLINE'}\n"
-                    f"Kezan world server: {'ONLINE' if kezan_online else 'OFFLINE'}"
-                )
+            # Determine overall status and color
+            if auth_status and (kezan_online or gurubashi_online):
+                overall_status = "ONLINE"
+                status_emoji = "✅"
+                embed_color = 0x00ff00  # Green
+            elif auth_status:
+                overall_status = "AUTH ONLY"
+                status_emoji = "⚠️"
+                embed_color = 0xffa500  # Orange
             else:
-                response_text = "Could not retrieve realm status at this time. The API might be down."
-        else:
-            response_text = "Could not retrieve realm status at this time. The API might be down."
+                overall_status = "OFFLINE"
+                status_emoji = "❌"
+                embed_color = 0xff0000  # Red
             
-        await message.edit(content=response_text)
-        print(f"[{discord.utils.utcnow()}] Manual status check requested by {ctx.author.name} in guild '{ctx.guild.name}': {response_text}")
+            # Create status embed
+            embed = discord.Embed(
+                title="🔍 Project Epoch Server Status",
+                description=f"{status_emoji} **Status: {overall_status}**",
+                color=embed_color,
+                timestamp=datetime.now(timezone.utc)
+            )
+            
+            # Auth server status
+            auth_emoji = "🟢" if auth_status else "🔴"
+            embed.add_field(
+                name="🔐 Authentication Server",
+                value=f"{auth_emoji} {'ONLINE' if auth_status else 'OFFLINE'}",
+                inline=True
+            )
+            
+            # Kezan server status
+            kezan_emoji = "🟢" if kezan_online else "🔴"
+            embed.add_field(
+                name="🌍 Kezan World Server",
+                value=f"{kezan_emoji} {'ONLINE' if kezan_online else 'OFFLINE'}",
+                inline=True
+            )
+            
+            # Gurubashi server status
+            gurubashi_emoji = "🟢" if gurubashi_online else "🔴"
+            embed.add_field(
+                name="🏝️ Gurubashi World Server",
+                value=f"{gurubashi_emoji} {'ONLINE' if gurubashi_online else 'OFFLINE'}",
+                inline=True
+            )
+            
+            # Add footer
+            embed.set_footer(
+                text="Status checked via direct connection (API backup available)",
+                icon_url="https://cdn.discordapp.com/emojis/852558866151800832.png"  # Optional: server icon
+            )
+            
+        else:
+            # Error embed
+            embed = discord.Embed(
+                title="🔍 Project Epoch Server Status",
+                description="❌ **Connection Failed**",
+                color=0xff0000
+            )
+            embed.add_field(
+                name="⚠️ Error",
+                value="Could not retrieve server status. Server connections failed.",
+                inline=False
+            )
+            embed.set_footer(text="Please try again in a moment")
+            
+        try:
+            await message.edit(embed=embed)
+        except discord.Forbidden:
+            try:
+                await ctx.send("❌ Lost permissions while updating status. Please check bot permissions.")
+            except discord.Forbidden:
+                pass  # Can't send any messages
+        
+        # Log the status check with clean logic
+        if data:
+            auth_log = "ON" if data.get('authServerStatus') else "OFF"
+            kezan_log = "ON" if kezan_online else "OFF"
+            gurubashi_log = "ON" if gurubashi_online else "OFF"
+            status_summary = f"Auth: {auth_log}, Kezan: {kezan_log}, Gurubashi: {gurubashi_log}"
+        else:
+            status_summary = "CONNECTION_FAILED"
+            
+        print(f"[{discord.utils.utcnow()}] Manual status check requested by {ctx.author.name} in guild '{ctx.guild.name}': {status_summary}")
 
 async def setup(bot):
     await bot.add_cog(StatusCog(bot))
