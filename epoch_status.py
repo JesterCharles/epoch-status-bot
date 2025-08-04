@@ -144,18 +144,52 @@ async def check_realm_status():
         # Kezan world server notification (opt-in users) only if both auth and Kezan are up
         if auth_server_status and kezan_online and not prev_kezan:
             try:
-                optin_users = await get_optin_users(guild_id)
-                if optin_users:
-                    mentions = ' '.join(f'<@{uid}>' for uid, _ in optin_users)
-                    await channel.send(
-                        f"{mentions} The Project Epoch realm **Kezan** is now **ONLINE**! Go Go Go!"
-                    )
-                    print(f"[{discord.utils.utcnow()}] Guild '{guild.name}' ({guild_id}): Kezan is online. Sent opt-in user pings to channel {channel.name}. Opt-ins: {[uname for _, uname in optin_users]}")
+                # Send initial detection message
+                verification_msg = await channel.send("🔍 **Both Auth and Kezan servers detected online!** Verifying in 10 seconds to reduce false positives...")
+                
+                # Wait 10 seconds and re-check to prevent false positives
+                print(f"[{discord.utils.utcnow()}] Guild '{guild.name}' ({guild_id}): Both Auth and Kezan detected online. Waiting 10s to reduce chance of a false positive before sending opt-in notifications...")
+                await asyncio.sleep(10)
+                
+                # Re-check server status after delay
+                verification_data = await poll_servers()
+                if verification_data:
+                    auth_verified = verification_data.get("Auth", {}).get("online", False)
+                    kezan_verified = verification_data.get("Kezan", {}).get("online", False)
+                    
+                    if auth_verified and kezan_verified:
+                        # Both servers still online after verification - delete verification message and send real notification
+                        try:
+                            await verification_msg.delete()
+                        except:
+                            pass  # Don't fail if we can't delete the message
+                            
+                        optin_users = await get_optin_users(guild_id)
+                        if optin_users:
+                            mentions = ' '.join(f'<@{uid}>' for uid, _ in optin_users)
+                            await channel.send(
+                                f"{mentions} The Project Epoch realm **Kezan** is now **ONLINE**! Go Go Go!"
+                            )
+                            print(f"[{discord.utils.utcnow()}] Guild '{guild.name}' ({guild_id}): Kezan is online (verified). Sent opt-in user pings to channel {channel.name}. Opt-ins: {[uname for _, uname in optin_users]}")
+                        else:
+                            await channel.send(
+                                "The Project Epoch realm **Kezan** is now **ONLINE**! (No users have opted in for notifications.)"
+                            )
+                            print(f"[{discord.utils.utcnow()}] Guild '{guild.name}' ({guild_id}): Kezan is online (verified). No opt-in users to ping in channel {channel.name}.")
+                    else:
+                        # Servers went offline during verification - update the verification message
+                        try:
+                            await verification_msg.edit(content="❌ **Verification failed** - Servers went offline during check.")
+                        except:
+                            await channel.send("❌ **Verification failed** - Servers went offline during check.")
+                        print(f"[{discord.utils.utcnow()}] Guild '{guild.name}' ({guild_id}): Verification failed - Auth: {'ON' if auth_verified else 'OFF'}, Kezan: {'ON' if kezan_verified else 'OFF'}. Skipping opt-in notifications.")
                 else:
-                    await channel.send(
-                        "The Project Epoch realm **Kezan** is now **ONLINE**! (No users have opted in for notifications.)"
-                    )
-                    print(f"[{discord.utils.utcnow()}] Guild '{guild.name}' ({guild_id}): Kezan is online. No opt-in users to ping in channel {channel.name}.")
+                    # Verification check failed completely
+                    try:
+                        await verification_msg.edit(content="⚠️ **Verification check failed** - Unable to re-check server status. No notifications sent.")
+                    except:
+                        await channel.send("⚠️ **Verification check failed** - Unable to re-check server status. No notifications sent.")
+                    print(f"[{discord.utils.utcnow()}] Guild '{guild.name}' ({guild_id}): Verification check failed. Skipping opt-in notifications.")
             except discord.Forbidden:
                 print(f"[{discord.utils.utcnow()}] Error: Bot does not have permissions to send messages in channel '{channel.name}' ({configured_channel_id}) in guild '{guild.name}' ({guild_id}).")
             except Exception as e:
@@ -176,6 +210,30 @@ async def check_realm_status():
                         print(f"[{discord.utils.utcnow()}] Guild '{guild.name}' ({guild_id}): {server_name} world server online (auth offline) message sent to channel {channel.name}.")
                     except Exception as e:
                         print(f"[{discord.utils.utcnow()}] Error sending standalone {server_name} message to guild '{guild.name}' ({guild_id}): {e}")
+
+        # World server offline notifications (when any world server goes offline)
+        if kezan_online or gurubashi_online or prev_kezan or prev_gurubashi:
+            # Check world servers for offline transitions
+            world_servers_offline = [
+                ("Kezan", kezan_online, prev_kezan),
+                ("Gurubashi", gurubashi_online, prev_gurubashi)
+            ]
+            
+            for server_name, current_status, previous_status in world_servers_offline:
+                if not current_status and previous_status:
+                    try:
+                        await channel.send(f"🔴 The Project Epoch realm **{server_name}** is now **OFFLINE**.")
+                        print(f"[{discord.utils.utcnow()}] Guild '{guild.name}' ({guild_id}): {server_name} world server offline message sent to channel {channel.name}.")
+                    except Exception as e:
+                        print(f"[{discord.utils.utcnow()}] Error sending {server_name} offline message to guild '{guild.name}' ({guild_id}): {e}")
+
+        # Auth server offline notification
+        if not auth_server_status and prev_auth:
+            try:
+                await channel.send("🔴 The Project Epoch **Auth server** is now **OFFLINE**.")
+                print(f"[{discord.utils.utcnow()}] Guild '{guild.name}' ({guild_id}): Auth server offline message sent to channel {channel.name}.")
+            except Exception as e:
+                print(f"[{discord.utils.utcnow()}] Error sending Auth server offline message to guild '{guild.name}' ({guild_id}): {e}")
 
         # Update last known status
         check_realm_status.last_status[guild_id]["auth"] = auth_server_status
