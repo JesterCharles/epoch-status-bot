@@ -4,7 +4,7 @@ import discord
 import asyncio
 from datetime import datetime, timezone
 from db import Database
-from server_status import poll_servers
+from server_status import poll_servers, check_patch_updates
 
 # Load environment variables from .env if present
 load_dotenv()
@@ -52,7 +52,8 @@ async def setup_hook():
         'cogs.notifications',
         'cogs.gambling',
         'cogs.gitcheck',
-        'cogs.clanker'
+        'cogs.clanker',
+        'cogs.patch'
     ]
     
     for cog in cogs_to_load:
@@ -80,6 +81,11 @@ async def check_realm_status():
     to all configured channels when status changes.
     """
     
+    # Check if this is the first run (startup grace period)
+    if not hasattr(check_realm_status, "startup_complete"):
+        check_realm_status.startup_complete = False
+        check_realm_status.startup_checks = 0
+    
     # Poll servers for current status
     try:
         server_data = await poll_servers()
@@ -99,6 +105,31 @@ async def check_realm_status():
     # Track last known status for auth and both world servers per guild
     if not hasattr(check_realm_status, "last_status"):
         check_realm_status.last_status = {}
+
+    # Startup grace period: Don't send notifications for the first 3 checks (45 seconds)
+    # This prevents spam when restarting the bot if servers are already online
+    if not check_realm_status.startup_complete:
+        check_realm_status.startup_checks += 1
+        if check_realm_status.startup_checks >= 3:
+            check_realm_status.startup_complete = True
+            print(f"[{discord.utils.utcnow()}] Startup grace period complete. Will now send notifications for status changes.")
+        else:
+            print(f"[{discord.utils.utcnow()}] Startup grace period: Check {check_realm_status.startup_checks}/3. Not sending notifications yet.")
+            # Initialize status tracking during grace period
+            for guild in bot.guilds:
+                guild_id = guild.id
+                if guild_id not in check_realm_status.last_status:
+                    check_realm_status.last_status[guild_id] = {
+                        "auth": auth_server_status,
+                        "kezan": kezan_online,
+                        "gurubashi": gurubashi_online
+                    }
+                else:
+                    # Update status during grace period
+                    check_realm_status.last_status[guild_id]["auth"] = auth_server_status
+                    check_realm_status.last_status[guild_id]["kezan"] = kezan_online
+                    check_realm_status.last_status[guild_id]["gurubashi"] = gurubashi_online
+            return
 
     for guild in bot.guilds:
         guild_id = guild.id
@@ -245,6 +276,80 @@ async def check_realm_status():
             print(f"[{discord.utils.utcnow()}] Guild '{guild.name}' ({guild_id}): Auth server is {'ONLINE' if auth_server_status else 'OFFLINE'}, Kezan is {'ONLINE' if kezan_online else 'OFFLINE'}, Gurubashi is {'ONLINE' if gurubashi_online else 'OFFLINE'} (no change).")
 
 
+# --- Background Task for Patch Checking ---
+@tasks.loop(minutes=1)  # Check for patches every minute
+async def check_patch_updates_task():
+    """
+    Periodically checks for new client patches and sends notifications
+    to all configured channels when updates are found.
+    """
+    
+    try:
+        has_updates, manifest, updated_files = await check_patch_updates()
+    except Exception as e:
+        print(f"[{discord.utils.utcnow()}] Patch checking failed: {e}")
+        return
+    
+    if not has_updates or not manifest:
+        return  # No updates or failed to get manifest
+    
+    # Send notifications to all guilds with configured notification channels
+    for guild in bot.guilds:
+        guild_id = guild.id
+        configured_channel_id = await get_notification_channel(guild_id)
+        if configured_channel_id is None:
+            continue  # No notification channel set
+            
+        channel = bot.get_channel(configured_channel_id)
+        if not channel:
+            continue  # Channel not found
+        
+        try:
+            version = manifest.get("Version", "Unknown")
+            
+            # Create patch notification embed
+            embed = discord.Embed(
+                title="🆕 New Project Epoch Patch Available!",
+                description=f"**Version:** `{version}`\n**Files Updated:** {len(updated_files)}",
+                color=0x00ff00,
+                timestamp=datetime.now(timezone.utc)
+            )
+            
+            # Show first few updated files
+            files_to_show = updated_files[:5]
+            if files_to_show:
+                files_text = "\n".join([f"• `{file}`" for file in files_to_show])
+                if len(updated_files) > 5:
+                    files_text += f"\n... and {len(updated_files) - 5} more files"
+                embed.add_field(
+                    name="📦 Updated Files",
+                    value=files_text,
+                    inline=False
+                )
+            
+            embed.set_footer(text="🎮 Download the latest client to get these updates!")
+            
+            # Send the embed
+            await channel.send(embed=embed)
+            
+            # Ping opt-in users
+            optin_users = await get_optin_users(guild_id)
+            if optin_users:
+                user_mentions = " ".join([f"<@{user_id}>" for user_id, _ in optin_users])
+                await channel.send(f"🆕 **New Patch Alert!** {user_mentions}")
+            
+            print(f"[{discord.utils.utcnow()}] Guild '{guild.name}' ({guild_id}): Patch notification sent for version {version}")
+            
+        except Exception as e:
+            print(f"[{discord.utils.utcnow()}] Error sending patch notification to guild '{guild.name}' ({guild_id}): {e}")
+
+
+@check_patch_updates_task.before_loop
+async def before_patch_check():
+    """Wait for the bot to be ready before starting patch checks."""
+    await bot.wait_until_ready()
+
+
 
 
 # --- Discord Event Handlers ---
@@ -261,7 +366,13 @@ async def on_ready():
     # Start the status checking task
     if not check_realm_status.is_running():
         print(f"Starting realm status check loop (every {CHECK_INTERVAL_SECONDS}s)...")
+        print(f"Note: First 3 checks (45s) will be silent to prevent restart spam.")
         check_realm_status.start()
+    
+    # Start the patch checking task
+    if not check_patch_updates_task.is_running():
+        print("Starting patch update check loop (every minute)...")
+        check_patch_updates_task.start()
 
 # --- Run the Bot ---
 if __name__ == "__main__":

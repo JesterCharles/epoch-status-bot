@@ -1,8 +1,10 @@
 import asyncio
 import socket
-import aiohttp  # Commented out - not using API backup currently
+import aiohttp
+import os
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Tuple
+from db import Database
 
 SERVERS = {
     "Auth": {"host": "game.project-epoch.net", "port": 3724},
@@ -96,6 +98,75 @@ async def check_servers_via_api():
 async def poll_servers():
     """Main function using only direct socket connections"""
     return await poll_servers_socket()
+
+async def check_patch_updates() -> Tuple[bool, Optional[Dict], List[str]]:
+    """
+    Check for patch updates by comparing current manifest with stored hashes.
+    Returns (has_updates, manifest_data, updated_files)
+    """
+    url = "https://updater.project-epoch.net/api/v2/manifest?environment=production"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    manifest = await response.json()
+                    
+                    # Use the same database file as the main bot
+                    DATABASE_FILE = os.environ.get("DATABASE_FILE", "bot_settings.db")
+                    db = Database(DATABASE_FILE)
+                    
+                    updated_files = []
+                    
+                    # Check each file in the manifest
+                    for file_info in manifest.get("Files", []):
+                        file_path = file_info.get("Path")
+                        current_hash = file_info.get("Hash")
+                        
+                        if not file_path or not current_hash:
+                            continue
+                            
+                        # Get stored hash
+                        stored_hash = db.get_stored_file_hash(file_path)
+                        
+                        # If hash is different or file is new, it's an update
+                        if stored_hash != current_hash:
+                            updated_files.append(file_path)
+                            # Update the stored hash
+                            db.update_file_hash(file_path, current_hash)
+                    
+                    has_updates = len(updated_files) > 0
+                    
+                    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                    print(f"[{timestamp}] Patch check: {'Updates found' if has_updates else 'No updates'} - {len(updated_files)} files changed")
+                    
+                    return has_updates, manifest, updated_files
+                    
+                else:
+                    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                    print(f"[{timestamp}] Patch API returned status code: {response.status}")
+                    return False, None, []
+                    
+    except Exception as e:
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        print(f"[{timestamp}] Patch check failed: {e}")
+        return False, None, []
+
+async def get_current_patch_info() -> Optional[Dict]:
+    """Get current patch information without checking for updates."""
+    url = "https://updater.project-epoch.net/api/v2/manifest?environment=production"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    return await response.json()
+                else:
+                    return None
+    except Exception as e:
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        print(f"[{timestamp}] Failed to get patch info: {e}")
+        return None
 
 # Example usage for testing
 if __name__ == "__main__":

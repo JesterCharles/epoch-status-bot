@@ -70,6 +70,15 @@ class Database:
             )
         ''')
         
+        # Patch tracking table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS patch_files (
+                file_path TEXT PRIMARY KEY,
+                file_hash TEXT NOT NULL,
+                last_updated INTEGER NOT NULL
+            )
+        ''')
+        
         # Add new columns to existing tables if they don't exist
         try:
             cursor.execute('ALTER TABLE gambling_balances ADD COLUMN last_daily_claim INTEGER DEFAULT 0')
@@ -389,3 +398,37 @@ class Database:
         if result:
             return result[0]
         return None
+
+    # --- Patch Tracking Methods ---
+    
+    def get_stored_file_hash(self, file_path: str) -> Optional[str]:
+        """Get the stored hash for a file path."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        cursor.execute("SELECT file_hash FROM patch_files WHERE file_path = ?", (file_path,))
+        result = cursor.fetchone()
+        conn.close()
+        if result:
+            return result[0]
+        return None
+
+    def update_file_hash(self, file_path: str, file_hash: str):
+        """Update or insert a file hash record."""
+        import time
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO patch_files (file_path, file_hash, last_updated)
+            VALUES (?, ?, ?)
+        ''', (file_path, file_hash, int(time.time())))
+        conn.commit()
+        conn.close()
+
+    def get_all_stored_files(self) -> List[Tuple[str, str]]:
+        """Get all stored file records (path, hash)."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        cursor.execute("SELECT file_path, file_hash FROM patch_files")
+        results = cursor.fetchall()
+        conn.close()
+        return results
