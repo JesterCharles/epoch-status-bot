@@ -101,7 +101,7 @@ async def poll_servers():
 
 async def check_patch_updates() -> Tuple[bool, Optional[Dict], List[str]]:
     """
-    Check for patch updates by comparing current manifest with stored hashes.
+    Check for patch updates by comparing current manifest version and UID with stored values.
     Returns (has_updates, manifest_data, updated_files)
     """
     url = "https://updater.project-epoch.net/api/v2/manifest?environment=production"
@@ -116,29 +116,36 @@ async def check_patch_updates() -> Tuple[bool, Optional[Dict], List[str]]:
                     DATABASE_FILE = os.environ.get("DATABASE_FILE", "bot_settings.db")
                     db = Database(DATABASE_FILE)
                     
-                    updated_files = []
+                    current_version = manifest.get("Version", "Unknown")
+                    current_uid = manifest.get("Uid", "Unknown")
                     
-                    # Check each file in the manifest
-                    for file_info in manifest.get("Files", []):
-                        file_path = file_info.get("Path")
-                        current_hash = file_info.get("Hash")
-                        
-                        if not file_path or not current_hash:
-                            continue
-                            
-                        # Get stored hash
-                        stored_hash = db.get_stored_file_hash(file_path)
-                        
-                        # If hash is different or file is new, it's an update
-                        if stored_hash != current_hash:
-                            updated_files.append(file_path)
-                            # Update the stored hash
-                            db.update_file_hash(file_path, current_hash)
-                    
-                    has_updates = len(updated_files) > 0
+                    # Check if version has changed
+                    stored_version_info = db.get_stored_version()
+                    has_updates = False
                     
                     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-                    print(f"[{timestamp}] Patch check: {'Updates found' if has_updates else 'No updates'} - {len(updated_files)} files changed")
+                    
+                    if stored_version_info:
+                        stored_version, stored_uid = stored_version_info
+                        if stored_version != current_version or stored_uid != current_uid:
+                            has_updates = True
+                            print(f"[{timestamp}] PATCH UPDATE DETECTED:")
+                            print(f"[{timestamp}]   Version: {stored_version} → {current_version}")
+                            print(f"[{timestamp}]   UID: {stored_uid[:12]}... → {current_uid[:12]}...")
+                            # Update stored version
+                            db.update_version(current_version, current_uid)
+                        else:
+                            print(f"[{timestamp}] Patch check: No updates - Version {current_version} unchanged")
+                    else:
+                        # First time - store current version
+                        has_updates = True
+                        print(f"[{timestamp}] INITIAL PATCH SETUP:")
+                        print(f"[{timestamp}]   Version: {current_version}")
+                        print(f"[{timestamp}]   UID: {current_uid[:12]}...")
+                        db.update_version(current_version, current_uid)
+                    
+                    # For compatibility, return empty list for updated_files since we're not tracking individual files anymore
+                    updated_files = []
                     
                     return has_updates, manifest, updated_files
                     

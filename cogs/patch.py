@@ -49,39 +49,55 @@ class PatchCog(commands.Cog):
         if manifest:
             version = manifest.get("Version", "Unknown")
             uid = manifest.get("Uid", "Unknown")
-            checked_at = manifest.get("checked_at", "Unknown")
+            checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
             total_files = len(manifest.get("Files", []))
             
-            if has_updates and updated_files:
+            if has_updates:
                 # New patch available
                 embed = discord.Embed(
                     title="🆕 New Project Epoch Patch Available!",
-                    description=f"**Version:** `{version}`\n**Update ID:** `{uid[:8]}...`",
+                    description=f"**Version:** `{version}`\n**Build ID:** `{uid[:12]}...`",
                     color=0x00ff00,  # Green for updates
                     timestamp=datetime.now(timezone.utc)
                 )
                 
-                # Show updated files (limit to first 10 to avoid spam)
-                files_to_show = updated_files[:10]
-                updated_files_text = "\n".join([f"• `{file}`" for file in files_to_show])
+                # Show what changed
+                from db import Database
+                import os
+                DATABASE_FILE = os.environ.get("DATABASE_FILE", "bot_settings.db")
+                db = Database(DATABASE_FILE)
                 
-                if len(updated_files) > 10:
-                    updated_files_text += f"\n... and {len(updated_files) - 10} more files"
+                stored_version_info = db.get_stored_version()
+                if stored_version_info:
+                    stored_version, stored_uid = stored_version_info
+                    
+                    changes = []
+                    if stored_version != version:
+                        changes.append(f"**Version:** `{stored_version}` → `{version}`")
+                    if stored_uid != uid:
+                        changes.append(f"**Build ID:** `{stored_uid[:12]}...` → `{uid[:12]}...`")
+                    
+                    if changes:
+                        embed.add_field(
+                            name="🔄 Changes Detected",
+                            value="\n".join(changes),
+                            inline=False
+                        )
                 
                 embed.add_field(
-                    name=f"📦 Updated Files ({len(updated_files)})",
-                    value=updated_files_text,
-                    inline=False
+                    name="📦 Client Files",
+                    value=f"{total_files} files in manifest",
+                    inline=True
                 )
                 
                 embed.add_field(
-                    name="⏰ Last Check",
+                    name="⏰ Detected At",
                     value=f"{checked_at}",
                     inline=True
                 )
                 
                 embed.set_footer(
-                    text="🎮 Download the latest client to get these updates!",
+                    text="🎮 Download the latest client to get this update!",
                     icon_url="https://cdn.discordapp.com/emojis/852558866151800832.png"
                 )
                 
@@ -100,14 +116,14 @@ class PatchCog(commands.Cog):
                 # No updates available
                 embed = discord.Embed(
                     title="✅ Project Epoch Client Up to Date",
-                    description=f"**Current Version:** `{version}`\n**Update ID:** `{uid[:8]}...`",
+                    description=f"**Current Version:** `{version}`\n**Build ID:** `{uid[:12]}...`",
                     color=0x00aa00,  # Darker green for up-to-date
                     timestamp=datetime.now(timezone.utc)
                 )
                 
                 embed.add_field(
-                    name="📦 Total Files",
-                    value=f"{total_files} files tracked",
+                    name="📦 Client Files",
+                    value=f"{total_files} files in manifest",
                     inline=True
                 )
                 

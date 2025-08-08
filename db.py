@@ -79,6 +79,16 @@ class Database:
             )
         ''')
         
+        # Patch version tracking table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS patch_version (
+                id INTEGER PRIMARY KEY,
+                version TEXT NOT NULL,
+                uid TEXT NOT NULL,
+                last_updated INTEGER NOT NULL
+            )
+        ''')
+        
         # Add new columns to existing tables if they don't exist
         try:
             cursor.execute('ALTER TABLE gambling_balances ADD COLUMN last_daily_claim INTEGER DEFAULT 0')
@@ -432,3 +442,26 @@ class Database:
         results = cursor.fetchall()
         conn.close()
         return results
+
+    def get_stored_version(self) -> Optional[Tuple[str, str]]:
+        """Get the stored version and UID. Returns (version, uid) or None."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        cursor.execute("SELECT version, uid FROM patch_version ORDER BY last_updated DESC LIMIT 1")
+        result = cursor.fetchone()
+        conn.close()
+        if result:
+            return result[0], result[1]
+        return None
+
+    def update_version(self, version: str, uid: str):
+        """Update or insert version and UID record."""
+        import time
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO patch_version (version, uid, last_updated)
+            VALUES (?, ?, ?)
+        ''', (version, uid, int(time.time())))
+        conn.commit()
+        conn.close()
