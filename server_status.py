@@ -96,8 +96,49 @@ async def check_servers_via_api():
         return None
 
 async def poll_servers():
-    """Main function using only direct socket connections"""
-    return await poll_servers_socket()
+    """Main function - tries socket connections first, falls back to API if needed"""
+    try:
+        # Try socket method first
+        socket_result = await poll_servers_socket()
+        
+        # Check if all servers appear offline - might indicate connection issues
+        all_offline = all(not server_info.get("online", False) for server_info in socket_result.values())
+        
+        # Also check if only Auth is online (common scenario when worlds are down)
+        auth_only = (socket_result.get("Auth", {}).get("online", False) and 
+                    not socket_result.get("Kezan", {}).get("online", False) and
+                    not socket_result.get("Gurubashi", {}).get("online", False))
+        
+        if all_offline or auth_only:
+            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            if all_offline:
+                print(f"[{timestamp}] All servers appear offline via socket, trying API fallback...")
+            else:
+                print(f"[{timestamp}] Only Auth server online via socket, trying API fallback...")
+            
+            # Try API as backup
+            api_result = await check_servers_via_api()
+            if api_result:
+                timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                print(f"[{timestamp}] Using API results as fallback")
+                return api_result
+            else:
+                print(f"[{timestamp}] API fallback also failed, using socket results")
+        
+        return socket_result
+        
+    except Exception as e:
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        print(f"[{timestamp}] Socket method failed ({e}), trying API fallback...")
+        
+        # If socket method completely fails, try API
+        api_result = await check_servers_via_api()
+        if api_result:
+            return api_result
+        else:
+            # If both fail, return empty states
+            print(f"[{timestamp}] Both socket and API methods failed")
+            return {}
 
 async def check_patch_updates() -> Tuple[bool, Optional[Dict], List[str]]:
     """
